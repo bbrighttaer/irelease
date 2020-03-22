@@ -5,7 +5,7 @@ import time
 import math
 import numpy as np
 import warnings
-
+import torch
 from rdkit import Chem
 from rdkit import DataStructs
 from sklearn.model_selection import KFold, StratifiedKFold
@@ -254,7 +254,7 @@ def time_since(since):
 
 
 def cross_validation_split(x, y, n_folds=5, split='random', folds=None):
-    assert(len(x) == len(y))
+    assert (len(x) == len(y))
     x = np.array(x)
     y = np.array(y)
     if split not in ['random', 'stratified', 'fixed']:
@@ -304,3 +304,27 @@ def read_object_property_file(path, delimiter=',', cols_to_read=[0, 1],
     if len(cols_to_read) == 1:
         data = data[0]
     return data
+
+
+def init_hidden(batch_size, seq_length, d_hidden, dvc='cpu'):
+    """
+    Initialization of the hidden state of RNN.
+
+    Returns
+    -------
+    hidden: tensor
+        tensor filled with zeros of size (batch_size, seq. length, d_hidden)
+    """
+    return torch.zeros(batch_size, seq_length, d_hidden).to(dvc)
+
+
+def init_stack(batch_size, seq_length, stack_depth, stack_width, dvc='cpu'):
+    """
+    Initialization of the stack state.
+
+    Returns
+    -------
+    stack: tensor
+        tensor filled with zeros
+    """
+    return torch.zeros(batch_size, seq_length, stack_depth, stack_width).to(dvc)
