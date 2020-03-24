@@ -10,6 +10,8 @@ import math
 import torch
 import torch.nn as nn
 
+from gpmt.utils import init_hidden, init_stack
+
 
 class Encoder(nn.Module):
     def __init__(self, vocab_size, d_model, padding_idx):
@@ -108,7 +110,7 @@ def _create_attn_mask(size, dvc):
 
 class StackDecoderLayer(nn.Module):
 
-    def __init__(self, d_model, num_heads, d_hidden, stack_depth, stack_width, d_ffn=2048, dropout=0.):
+    def __init__(self, d_model, num_heads, d_hidden, stack_depth, stack_width, d_ff=2048, dropout=0.):
         super(StackDecoderLayer, self).__init__()
         self.d_hidden = d_hidden
         self.stack_depth = stack_depth
@@ -116,16 +118,16 @@ class StackDecoderLayer(nn.Module):
         self.multihead_attention = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout)
         self.mha_normalize = nn.LayerNorm(d_model)
         self.ffn_norm = nn.LayerNorm(d_model)
-        self.ffn_inner = nn.Linear(d_model, d_ffn)
-        self.ffn_outer = nn.Linear(d_ffn, d_model)
+        self.ffn_inner = nn.Linear(d_model, d_ff)
+        self.ffn_outer = nn.Linear(d_ff, d_model)
         self.nonsat = NonsatActivation()
 
         # stack & hidden state elements
         self.W = nn.Linear(d_model, d_hidden)
         self.R = nn.Linear(d_hidden, d_hidden)
         self.P = nn.Linear(stack_width, d_hidden)
-        self.V = nn.Linear(d_model + d_hidden, d_ffn, bias=False)
-        self.U = nn.Linear(d_ffn, d_model, bias=False)
+        self.V = nn.Linear(d_model + d_hidden, d_ff, bias=False)
+        self.U = nn.Linear(d_ff, d_model, bias=False)
         self.A = nn.Linear(self.d_hidden, 3)
         self.D = nn.Linear(d_hidden, stack_width)
 
@@ -200,3 +202,30 @@ class StackDecoderLayer(nn.Module):
         stack_up = torch.cat((input_val, stack_prev[:, :, :-1]), dim=2)
         new_stack = a_no_op * stack_prev + a_push * stack_up + a_pop * stack_down
         return new_stack
+
+
+class AttentionInitialize(nn.Module):
+    """Prepares the encoded input for propagation through the memory layer(s)."""
+
+    def __init__(self, d_hidden, s_depth, s_width):
+        super(AttentionInitialize, self).__init__()
+        self.d_hidden = d_hidden
+        self.s_depth = s_depth
+        self.s_width = s_width
+
+    def forward(self, x):
+        """
+
+        :param x: tensor
+            Encoded input of shape (Seq. length, batch_size, d_model)
+        :return:
+        """
+        h0 = init_hidden(x.shape[1], x.shape[0], self.d_hidden)
+        s0 = init_stack(x.shape[1], x.shape[0], self.s_depth, self.s_width)
+        return x, h0, s0
+
+
+class AttentionTerminal(nn.Module):
+    def forward(self, inp):
+        """Prepares the final attention output before applying feeding to classifier."""
+        return inp[0]

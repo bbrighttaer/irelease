@@ -1,16 +1,13 @@
 import unittest
 from gpmt.data import GeneratorData
 from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer
-from gpmt.utils import init_hidden, init_stack
+from gpmt.utils import init_hidden, init_stack, get_default_tokens
 
-gen_data_path = '../data/chembl_small.smi'
-tokens = [' ', '<', '>', '#', '%', ')', '(', '+', '-', '/', '.', '1', '0', '3',
-          '2', '5', '4', '7', '6', '9', '8', '=', 'A', '@', 'C', 'B', 'F', 'I',
-          'H', 'O', 'N', 'P', 'S', '[', ']', '\\', 'c', 'e', 'i', 'l', 'o', 'n',
-          'p', 's', 'r', '\n']
+gen_data_path = '../data/chembl_xsmall.smi'
+tokens = get_default_tokens()
 print(f'Number of tokens = {len(tokens)}')
 gen_data = GeneratorData(training_data_path=gen_data_path, delimiter='\t',
-                         cols_to_read=[1], keep_header=False, tokens=tokens)
+                         cols_to_read=[0], keep_header=True, tokens=None, token_reload=True)
 
 bz = 32
 

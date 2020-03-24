@@ -1,11 +1,13 @@
 # Original code from: https://github.com/isayev/ReLeaSE
 
+import os
 import csv
 import time
 import math
 import numpy as np
 import warnings
 import torch
+import pickle
 from rdkit import Chem
 from rdkit import DataStructs
 from sklearn.model_selection import KFold, StratifiedKFold
@@ -213,7 +215,7 @@ def read_smi_file(filename, unique=True, add_start_end_tokens=False):
     return molecules, f.closed
 
 
-def tokenize(smiles, tokens=None):
+def tokenize(smiles, pad_symbol, tokens=None, tokens_reload=False):
     """
     Returns list of unique tokens, token-2-index dictionary and number of
     unique tokens from the list of SMILES
@@ -225,6 +227,8 @@ def tokenize(smiles, tokens=None):
 
         tokens: list, str (default None)
             list of unique tokens
+        tokens_reload: bool
+            Whether the resulting tokens dict should be pickled and loaded for subsequent runs.
 
     Returns
     -------
@@ -237,12 +241,25 @@ def tokenize(smiles, tokens=None):
         num_tokens: int
             number of unique tokens.
     """
+    check_reload = False
     if tokens is None:
+        if tokens_reload and os.path.exists('token2idx.pkl'):
+            with open('token2idx.pkl', 'rb') as f:
+                token2idx = pickle.load(f)
+                tokens = list(token2idx.keys())
+                num_tokens = len(tokens)
+                return tokens, token2idx, num_tokens
         tokens = list(set(''.join(smiles)))
         tokens = list(np.sort(tokens))
         tokens = ''.join(tokens)
+        check_reload = True
     token2idx = dict((token, i) for i, token in enumerate(tokens))
+    token2idx[pad_symbol] = len(token2idx)
+    tokens += pad_symbol
     num_tokens = len(tokens)
+    if check_reload and tokens_reload:
+        with open('token2idx.pkl', 'wb') as f:
+            pickle.dump(dict(token2idx), f)
     return tokens, token2idx, num_tokens
 
 
@@ -287,7 +304,7 @@ def cross_validation_split(x, y, n_folds=5, split='random', folds=None):
 
 
 def read_object_property_file(path, delimiter=',', cols_to_read=[0, 1],
-                              keep_header=False):
+                              keep_header=False, **kwargs):
     f = open(path, 'r')
     reader = csv.reader(f, delimiter=delimiter)
     data_full = np.array(list(reader))
@@ -328,3 +345,144 @@ def init_stack(batch_size, seq_length, stack_depth, stack_width, dvc='cpu'):
         tensor filled with zeros
     """
     return torch.zeros(batch_size, seq_length, stack_depth, stack_width).to(dvc)
+
+
+class Flags(object):
+    # enables using either object referencing or dict indexing to retrieve user passed arguments of flag objects.
+    def __getitem__(self, item):
+        return self.__dict__[item]
+
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
+
+
+def get_default_tokens():
+    """Default SMILES tokens"""
+    tokens = [' ', '<', '>', '#', '%', ')', '(', '+', '-', '/', '.', '1', '0', '3',
+              '2', '5', '4', '7', '6', '9', '8', '=', 'A', '@', 'C', 'B', 'F', 'I',
+              'H', 'O', 'N', 'P', 'S', '[', ']', '\\', 'c', 'e', 'i', 'l', 'o', 'n',
+              'p', 's', 'r', '\n']
+    return tokens
+
+
+def parse_optimizer(hparams, model):
+    """
+    Creates an optimizer for the given model using the argumentes specified in
+    hparams.
+
+    Arguments:
+    -----------
+    :param hparams: Hyperparameters dictionary
+    :param model: An nn.Module object
+    :return: a torch.optim object
+    """
+    # optimizer configuration
+    optimizer = {
+        "adadelta": torch.optim.Adadelta,
+        "adagrad": torch.optim.Adagrad,
+        "adam": torch.optim.Adam,
+        "adamax": torch.optim.Adamax,
+        "asgd": torch.optim.ASGD,
+        "rmsprop": torch.optim.RMSprop,
+        "Rprop": torch.optim.Rprop,
+        "sgd": torch.optim.SGD,
+    }.get(hparams["optimizer"].lower(), None)
+    assert optimizer is not None, "{} optimizer could not be found"
+
+    # filter optimizer arguments
+    optim_kwargs = dict()
+    optim_key = hparams["optimizer"]
+    for k, v in hparams.items():
+        if "optimizer__" in k:
+            attribute_tup = k.split("__")
+            if optim_key == attribute_tup[1] or attribute_tup[1] == "global":
+                optim_kwargs[attribute_tup[2]] = v
+    optimizer = optimizer(model.parameters(), **optim_kwargs)
+    return optimizer
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+class GradStats(object):
+    def __init__(self, net, tb_writer=None, beta=.9, bias_cor=False):
+        super(GradStats, self).__init__()
+        self.net = net
+        self.writer = tb_writer
+        self._l2 = ExpAverage(beta, bias_cor)
+        self._max = ExpAverage(beta, bias_cor)
+        self._var = ExpAverage(beta, bias_cor)
+        self._window = 1 // (1. - beta)
+
+    @property
+    def l2(self):
+        return self._l2.value
+
+    @property
+    def max(self):
+        return self._max.value
+
+    @property
+    def var(self):
+        return self._var.value
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, *args):
+        self._l2.reset()
+        self._max.reset()
+        self._var.reset()
+        self.t = 0
+
+    def stats(self, step_idx=None):
+        grads = np.concatenate([p.grad.data.cpu().numpy().flatten() for p in self.net.parameters()
+                                if p.grad is not None])
+        l2 = np.sqrt(np.mean(np.square(grads)))
+        self._l2.update(l2)
+        mx = np.max(np.abs(grads))
+        self._max.update(mx)
+        vr = np.var(grads)
+        self._var.update(vr)
+        if self.writer:
+            assert step_idx is not None, "step_idx cannot be none"
+            self.writer.add_scalar("grad_l2", l2, step_idx)
+            self.writer.add_scalar("grad_max", mx, step_idx)
+            self.writer.add_scalar("grad_var", vr, step_idx)
+        return "Grads stats (w={}): L2={}, max={}, var={}".format(int(self._window), self.l2, self.max, self.var)
+
+
+class ExpAverage(object):
+    def __init__(self, beta, bias_cor=False):
+        self.beta = beta
+        self.value = 0.
+        self.bias_cor = bias_cor
+        self.t = 0
+
+    def reset(self):
+        self.t = 0
+        self.value = 0
+
+    def update(self, v):
+        self.t += 1
+        self.value = self.beta * self.value + (1. - self.beta) * v
+        if self.bias_cor:
+            self.value = self.value / (1. - pow(self.beta, self.t))
+
+
+class Count(object):
+    def __init__(self, i=-1):
+        self.i = i
+
+    def inc(self):
+        self.i += 1
+
+    def getAndInc(self):
+        r = self.i
+        self.inc()
+        return r
+
+    def IncAndGet(self):
+        self.inc()
+        return self.i

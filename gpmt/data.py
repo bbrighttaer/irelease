@@ -7,9 +7,6 @@ from gpmt.utils import read_smi_file, tokenize, read_object_property_file
 
 
 class GeneratorData(object):
-    """
-    Docstring coming soon...
-    """
 
     def __init__(self, training_data_path, tokens=None, start_token='<',
                  end_token='>', pad_symbol=' ', max_len=120, use_cuda=None,
@@ -55,6 +52,10 @@ class GeneratorData(object):
 
         if 'cols_to_read' not in kwargs:
             kwargs['cols_to_read'] = []
+        if 'batch_size' in kwargs:
+            self.batch_size = kwargs['batch_size']
+        if 'tokens_reload' in kwargs:
+            self.tokens_reload = kwargs['tokens_reload']
 
         data = read_object_property_file(training_data_path, **kwargs)
         self.start_token = start_token
@@ -66,7 +67,7 @@ class GeneratorData(object):
                 self.file.append(self.start_token + data[i] + self.end_token)
         self.file_len = len(self.file)
         self.all_characters, self.char2idx, \
-        self.n_characters = tokenize(self.file, tokens)
+        self.n_characters = tokenize(self.file, pad_symbol, tokens, self.tokens_reload)
         self.pad_symbol_idx = self.all_characters.index(self.pad_symbol)
         self.use_cuda = use_cuda
         if self.use_cuda is None:
@@ -76,6 +77,9 @@ class GeneratorData(object):
         self.all_characters = tokens
         self.char2idx = char2idx
         self.n_characters = len(tokens)
+
+    def set_batch_size(self, batch_size):
+        self.batch_size = batch_size
 
     def random_chunk(self, batch_size):
         """
@@ -112,7 +116,10 @@ class GeneratorData(object):
             seqs[i] = seqs[i] + pad_symbol * (max_length - cur_len)
         return seqs, lengths
 
-    def random_training_set(self, batch_size):
+    def random_training_set(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        assert (batch_size > 0)
         inp, target = self.random_chunk(batch_size)
         inp_padded, _ = self.pad_sequences(inp)
         inp_tensor, self.all_characters = self.seq2tensor(inp_padded,
