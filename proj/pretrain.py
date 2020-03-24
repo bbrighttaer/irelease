@@ -31,7 +31,7 @@ from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, Attention
 from gpmt.tboard import TBMeanTracker
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count
 
-device_id = 'cpu'
+device = 'cuda'
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -41,8 +41,12 @@ seeds = [1]
 check_data = False
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 2
+    use_cuda = True
     torch.cuda.set_device(dvc_id)
+else:
+    use_cuda = None
+    dvc_id = 0
 
 
 class GpmtPretrain(Trainer):
@@ -78,15 +82,17 @@ class GpmtPretrain(Trainer):
         # Create main model
         model = nn.Sequential(Encoder(vocab_size=gen_data.n_characters,
                                       d_model=hparams['d_model'],
-                                      padding_idx=gen_data.char2idx[' ']),
+                                      padding_idx=gen_data.char2idx[gen_data.pad_symbol]),
                               PositionalEncoding(d_model=hparams['d_model'],
                                                  dropout=hparams['dropout']),
                               AttentionInitialize(d_hidden=hparams['d_hidden'],
                                                   s_width=hparams['stack_width'],
-                                                  s_depth=hparams['stack_depth']),
+                                                  s_depth=hparams['stack_depth'],
+                                                  dvc=f'{device}:{dvc_id}'),
                               *attn_layers,
                               AttentionTerminal(),
                               *classifier_layers)
+        model = model.cuda()
 
         optimizer = parse_optimizer(hparams, model)
 
@@ -101,6 +107,7 @@ class GpmtPretrain(Trainer):
                                  pad_symbol=' ',
                                  max_len=1000,
                                  tokens=None,
+                                 use_cuda=use_cuda,
                                  tokens_reload=True)
         return {"train": gen_data, "val": gen_data, "test": gen_data}
 
@@ -275,7 +282,7 @@ class GpmtPretrain(Trainer):
         # if dvc is None:
         #     dvc = torch.device("cuda:0")
         return torch.load(os.path.join(path, name),
-                          map_location=torch.device(device_id))
+                          map_location=torch.device(device))
 
 
 def main(flags):

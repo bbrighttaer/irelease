@@ -209,11 +209,12 @@ class StackDecoderLayer(nn.Module):
 class AttentionInitialize(nn.Module):
     """Prepares the encoded input for propagation through the memory layer(s)."""
 
-    def __init__(self, d_hidden, s_depth, s_width):
+    def __init__(self, d_hidden, s_depth, s_width, dvc='cpu'):
         super(AttentionInitialize, self).__init__()
         self.d_hidden = d_hidden
         self.s_depth = s_depth
         self.s_width = s_width
+        self.dvc = dvc
 
     def forward(self, x):
         """
@@ -222,8 +223,8 @@ class AttentionInitialize(nn.Module):
             Encoded input of shape (Seq. length, batch_size, d_model)
         :return:
         """
-        h0 = init_hidden(x.shape[1], x.shape[0], self.d_hidden)
-        s0 = init_stack(x.shape[1], x.shape[0], self.s_depth, self.s_width)
+        h0 = init_hidden(x.shape[1], x.shape[0], self.d_hidden, dvc=self.dvc)
+        s0 = init_stack(x.shape[1], x.shape[0], self.s_depth, self.s_width, dvc=self.dvc)
         return x, h0, s0
 
 

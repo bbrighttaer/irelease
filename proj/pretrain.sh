@@ -1,0 +1,1 @@
+python pretrain.py --data ../data/chembl_small.smi --hparam_search
