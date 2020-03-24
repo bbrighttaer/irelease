@@ -40,6 +40,7 @@ class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0., max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.linear = nn.Linear(d_model * 2, d_model)
+        self.normalize = nn.LayerNorm(d_model)
         self.nonlinearity = NonsatActivation()
         self.dropout = nn.Dropout(p=dropout)
 
@@ -64,7 +65,7 @@ class PositionalEncoding(nn.Module):
         x_pe = self.pe[:seq_length, :]
         x_pe = torch.repeat_interleave(x_pe.unsqueeze(1), batch_size, dim=1)
         x = torch.cat([x, x_pe], dim=-1)
-        x = self.dropout(self.nonlinearity(self.linear(x)))
+        x = self.dropout(self.nonlinearity(self.normalize(self.linear(x))))
         return x
 
 
@@ -110,7 +111,7 @@ def _create_attn_mask(size, dvc):
 
 class StackDecoderLayer(nn.Module):
 
-    def __init__(self, d_model, num_heads, d_hidden, stack_depth, stack_width, d_ff=2048, dropout=0.):
+    def __init__(self, d_model, num_heads, d_hidden, stack_depth, stack_width, d_ff=2048, d_ss=128, dropout=0.):
         super(StackDecoderLayer, self).__init__()
         self.d_hidden = d_hidden
         self.stack_depth = stack_depth
@@ -120,14 +121,14 @@ class StackDecoderLayer(nn.Module):
         self.ffn_norm = nn.LayerNorm(d_model)
         self.ffn_inner = nn.Linear(d_model, d_ff)
         self.ffn_outer = nn.Linear(d_ff, d_model)
-        self.nonsat = NonsatActivation()
+        self.nonlinearity = NonsatActivation()
 
         # stack & hidden state elements
         self.W = nn.Linear(d_model, d_hidden)
         self.R = nn.Linear(d_hidden, d_hidden)
         self.P = nn.Linear(stack_width, d_hidden)
-        self.V = nn.Linear(d_model + d_hidden, d_ff, bias=False)
-        self.U = nn.Linear(d_ff, d_model, bias=False)
+        self.V = nn.Linear(d_model + d_hidden, d_ss, bias=False)
+        self.U = nn.Linear(d_ss, d_model, bias=False)
         self.A = nn.Linear(self.d_hidden, 3)
         self.D = nn.Linear(d_hidden, stack_width)
 
@@ -155,11 +156,12 @@ class StackDecoderLayer(nn.Module):
         x, _ = self.multihead_attention(x_in, x_in, x_in, attn_mask=mask, need_weights=False)
         x = x_in + x
         x = self.mha_normalize(x)
+        x = self.nonlinearity(x)
 
         # hidden state ops
         stack_x = stack_prev[:, :, 0, :].view(batch_size, seq_length, -1)
         hidden = self.W(x.permute(1, 0, 2)) + self.R(hidden_prev) + self.P(stack_x)
-        hidden = self.nonsat(hidden)
+        hidden = self.nonlinearity(hidden)
 
         # stack ops
         vx = torch.cat([x, hidden.permute(1, 0, 2)], dim=-1)
@@ -170,12 +172,12 @@ class StackDecoderLayer(nn.Module):
         x = torch.mean(x, dim=0)
 
         # stack update
-        stack_inp = self.nonsat(self.D(hidden)).unsqueeze(2)
+        stack_inp = self.nonlinearity(self.D(hidden)).unsqueeze(2)
         stack_controls = torch.softmax(self.A(hidden), dim=-1)
         stack = self.stack_augmentation(stack_inp, stack_prev, stack_controls)
 
         # FFN module
-        x = self.ffn_norm(x + self.ffn_outer(torch.relu(self.ffn_inner(x))))
+        x = self.ffn_norm(x + self.ffn_outer(self.nonlinearity(self.ffn_inner(x))))
         return x, hidden, stack
 
     def stack_augmentation(self, input_val, stack_prev, controls):

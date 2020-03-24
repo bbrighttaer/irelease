@@ -18,10 +18,9 @@ import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as sch
 from sklearn.metrics import accuracy_score
-import soek
 from soek import CategoricalParam, LogRealParam, ConstantParam, RealParam, DiscreteParam, DataNode, RandomSearch, \
     BayesianOptSearch
-from soek.bopt import GPMinArgs
+from soek.bopt import GPMinArgs, GBRTMinArgs
 from soek.template import Trainer
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -48,8 +47,7 @@ if torch.cuda.is_available():
 
 class GpmtPretrain(Trainer):
     @staticmethod
-    def initialize(hparams, data_provider):
-        gen_data = data_provider['train']
+    def initialize(hparams, gen_data, *args, **kwargs):
         gen_data.set_batch_size(hparams['batch_size'])
 
         # Create stack-augmented transformer (Decoder) layer(s)
@@ -62,6 +60,7 @@ class GpmtPretrain(Trainer):
                                   stack_depth=hparams['stack_depth'],
                                   stack_width=hparams['stack_width'],
                                   d_ff=hparams['d_ff'],
+                                  d_ss=hparams['d_ss'],
                                   dropout=hparams['dropout'])
             )
 
@@ -94,7 +93,7 @@ class GpmtPretrain(Trainer):
         return model, optimizer, gen_data
 
     @staticmethod
-    def data_provider(flags):
+    def data_provider(k, flags):
         gen_data = GeneratorData(training_data_path=flags.data_file,
                                  delimiter='\t',
                                  cols_to_read=[0],
@@ -269,7 +268,7 @@ class GpmtPretrain(Trainer):
     def save_model(model, path, name):
         os.makedirs(path, exist_ok=True)
         file = os.path.join(path, name + ".mod")
-        torch.save(model.state_dict(), file)
+        # torch.save(model.state_dict(), file)
 
     @staticmethod
     def load_model(path, name):
@@ -303,11 +302,12 @@ def main(flags):
         torch.cuda.manual_seed_all(seed)
 
         # load data
-        print('-------------------------------------')
+        print('---------------------------------------------------')
         print('Running on dataset: %s' % flags.data_file)
-        print('-------------------------------------')
+        print('---------------------------------------------------')
 
         trainer = GpmtPretrain()
+        k = 1
         if flags["hparam_search"]:
             print("Hyperparameter search enabled: {}".format(flags["hparam_search_alg"]))
 
@@ -315,11 +315,10 @@ def main(flags):
             extra_init_args = {}
             extra_data_args = {"flags": flags}
             extra_train_args = {"is_hsearch": True,
-                                "n_iters": 3000,
+                                "n_iters": 50000,
                                 "tb_writer": summary_writer_creator}
 
             hparams_conf = get_hparam_config(flags)
-
             if hparam_search is None:
                 search_alg = {"random_search": RandomSearch,
                               "bayopt_search": BayesianOptSearch}.get(flags["hparam_search_alg"],
@@ -347,8 +346,8 @@ def main(flags):
             print("Best params = {}".format(stats.best()))
         else:
             hyper_params = default_hparams_bopt(flags)
-            model, optimizer, gen_data = trainer.initialize(hparams=hyper_params,
-                                                            data_provider=trainer.data_provider(flags))
+            model, optimizer, gen_data = trainer.initialize(hyper_params,
+                                                            gen_data=trainer.data_provider(k, flags)['train'])
             results = trainer.train(model=model,
                                     optimizer=optimizer,
                                     gen_data=gen_data,
@@ -364,36 +363,38 @@ def main(flags):
 
 def default_hparams_bopt(args):
     return {
-        'attn_heads': 1,
-        'attn_layers': 1,
-        'lin_dims': [500, 200],
+        'attn_heads': 2,
+        'attn_layers': 3,
+        'lin_dims': [512, 256],
         'dropout': 0.2,
-        'd_model': 128,
-        'd_hidden': 16,
+        'd_model': 64,
+        'd_hidden': 32,
         'stack_width': 16,
         'stack_depth': 20,
         'd_ff': 2048,
+        "d_ss": 512,
         'batch_size': 32,
 
         # optimizer params
         'optimizer': 'adam',
-        'optimizer__global__weight_decay': 0.0007,
+        'optimizer__global__weight_decay': 0.00005,
         'optimizer__global__lr': 0.001,
     }
 
 
 def get_hparam_config(args):
     config = {
-        "attn_heads": CategoricalParam([1, 2, 4, 8, 16]),
-        "attn_layers": DiscreteParam(min=1, max=3),
+        "attn_heads": CategoricalParam([1, 2, 4, 8]),
+        "attn_layers": DiscreteParam(min=1, max=4),
         "lin_dims": DiscreteParam(min=64, max=2048, size=DiscreteParam(min=1, max=3)),
-
-        # dropout
-        "dropout": RealParam(0.1, max=0.5),
-
-        "tr_batch_size": CategoricalParam(choices=[128, 256]),
-        "val_batch_size": ConstantParam(128),
-        "test_batch_size": ConstantParam(128),
+        "d_model": CategoricalParam(choices=[128, 256, 512, 1024]),
+        "d_hidden": DiscreteParam(min=10, max=64),
+        "stack_width": DiscreteParam(min=10, max=64),
+        "stack_depth": DiscreteParam(min=10, max=64),
+        "d_ff": DiscreteParam(min=128, max=2048),
+        "d_ss": DiscreteParam(min=128, max=1024),
+        "dropout": RealParam(0.0, max=0.5),
+        "batch_size": CategoricalParam(choices=[32, 64, 128]),
 
         # optimizer params
         "optimizer": CategoricalParam(choices=["sgd", "adam", "adadelta", "adagrad", "adamax", "rmsprop"]),
