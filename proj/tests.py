@@ -1,13 +1,14 @@
 import unittest
+import torch
 from gpmt.data import GeneratorData
-from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer
+from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut
 from gpmt.utils import init_hidden, init_stack, get_default_tokens
 
 gen_data_path = '../data/chembl_xsmall.smi'
-tokens = get_default_tokens()
-print(f'Number of tokens = {len(tokens)}')
+# tokens = get_default_tokens()
+# print(f'Number of tokens = {len(tokens)}')
 gen_data = GeneratorData(training_data_path=gen_data_path, delimiter='\t',
-                         cols_to_read=[0], keep_header=True, tokens=None, token_reload=True)
+                         cols_to_read=[0], keep_header=True, tokens=None, tokens_reload=True)
 
 bz = 32
 
@@ -20,14 +21,14 @@ class MyTestCase(unittest.TestCase):
 
     def test_embeddings(self):
         x, y = gen_data.random_training_set(batch_size=bz)
-        encoder = Encoder(gen_data.n_characters, 128, tokens.index(' '))
+        encoder = Encoder(gen_data.n_characters, 128, gen_data.char2idx[gen_data.pad_symbol])
         x = encoder(x)
         assert (x.ndim == 3)
         print(f'x.shape = {x.shape}')
 
     def test_positional_encodings(self):
         x, y = gen_data.random_training_set(batch_size=bz)
-        encoder = Encoder(gen_data.n_characters, 128, tokens.index(' '))
+        encoder = Encoder(gen_data.n_characters, 128, gen_data.char2idx[gen_data.pad_symbol])
         x = encoder(x)
         enc_shape = x.shape
         pe = PositionalEncoding(128, dropout=.2, max_len=500)
@@ -41,7 +42,7 @@ class MyTestCase(unittest.TestCase):
         d_hidden = 10
         s_width = 16
         s_depth = 20
-        encoder = Encoder(gen_data.n_characters, d_model, tokens.index(' '))
+        encoder = Encoder(gen_data.n_characters, 128, gen_data.char2idx[gen_data.pad_symbol])
         x = encoder(x)
         pe = PositionalEncoding(d_model, dropout=.2, max_len=500)
         x = pe(x)
@@ -52,6 +53,14 @@ class MyTestCase(unittest.TestCase):
                                           stack_width=s_width, dropout=.1)
         out = stack_decoder((x, h0, s0))
         assert (len(out) == 3)
+
+    def test_input_equals_output_embeddings(self):
+        x, y = gen_data.random_training_set(batch_size=bz)
+        encoder = Encoder(gen_data.n_characters, 128, gen_data.char2idx[gen_data.pad_symbol])
+        lin_out = LinearOut(encoder.embeddings_weight)
+        x = encoder(x)
+        x_out = lin_out(x)
+        assert x.shape == x_out.shape
 
 
 if __name__ == '__main__':

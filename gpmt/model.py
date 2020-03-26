@@ -7,16 +7,39 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import math
+import copy
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from gpmt.utils import init_hidden, init_stack
 
 
+def clone(module, N):
+    """
+    Make N copies of an nn.Module
+
+    :param module: the model to copy
+    :param N: the number of copies
+    :return: an nn.ModuleList of the copies
+    """
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
+
 class Encoder(nn.Module):
-    def __init__(self, vocab_size, d_model, padding_idx):
+    def __init__(self, vocab_size, d_model, padding_idx, dropout=0.):
         super(Encoder, self).__init__()
+        self.d_model = d_model
+        self.padding_idx = padding_idx
+        self.dropout = nn.Dropout(dropout)
         self.embedding = nn.Embedding(vocab_size, d_model, padding_idx=padding_idx)
+        self.k_mask = None
+
+    def k_padding_mask(self):
+        return self.k_mask
+
+    def embeddings_weight(self):
+        return self.embedding.weight
 
     def forward(self, x):
         """
@@ -26,7 +49,8 @@ class Encoder(nn.Module):
         :return: tensor
             x of shape (sequence length, batch_size, d_model)
         """
-        x = self.embedding(x)
+        self.k_mask = x == self.padding_idx
+        x = self.dropout(self.embedding(x) * math.sqrt(self.d_model))
         x = x.permute(1, 0, 2)
         return x
 
@@ -41,7 +65,7 @@ class PositionalEncoding(nn.Module):
         super(PositionalEncoding, self).__init__()
         self.linear = nn.Linear(d_model * 2, d_model)
         self.normalize = nn.LayerNorm(d_model)
-        self.nonlinearity = NonsatActivation()
+        # self.nonlinearity = NonsatActivation()
         self.dropout = nn.Dropout(p=dropout)
 
         # Compute the positional encodings once in log space.
@@ -65,7 +89,7 @@ class PositionalEncoding(nn.Module):
         x_pe = self.pe[:seq_length, :]
         x_pe = torch.repeat_interleave(x_pe.unsqueeze(1), batch_size, dim=1)
         x = torch.cat([x, x_pe], dim=-1)
-        x = self.dropout(self.nonlinearity(self.normalize(self.linear(x))))
+        x = self.dropout(torch.relu(self.normalize(self.linear(x))))
         return x
 
 
@@ -109,21 +133,47 @@ def _create_attn_mask(size, dvc):
     return attn_mask
 
 
+class SublayerConnection(nn.Module):
+    def __init__(self, d_model, dropout):
+        super(SublayerConnection, self).__init__()
+        self.norm = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, sublayer):
+        x = x + self.dropout(sublayer(self.norm(x)))
+        return x
+
+
+class PositionwiseFeedForward(nn.Module):
+    def __init__(self, d_model, d_ff, dropout):
+        super(PositionwiseFeedForward, self).__init__()
+        self.lin_inner = nn.Linear(d_model, d_ff)
+        self.lin_outer = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        x = self.lin_outer(self.dropout(torch.relu(self.lin_inner(x))))
+        return x
+
+
 class StackDecoderLayer(nn.Module):
 
-    def __init__(self, d_model, num_heads, d_hidden, stack_depth, stack_width, d_ff=2048, d_ss=128, dropout=0.):
+    def __init__(self, d_model, num_heads, d_hidden, stack_depth, stack_width, k_mask_func, d_ff=2048, d_ss=128,
+                 dropout=0., use_memory=True):
         super(StackDecoderLayer, self).__init__()
+        assert callable(k_mask_func), 'k_mask_func argument should be a method of the ' \
+                                      'Encoder that provides the key padding mask.'
+        self.use_memory = use_memory
         self.d_hidden = d_hidden
         self.stack_depth = stack_depth
         self.stack_width = stack_width
+        self.k_padding_mask_func = k_mask_func
         self.multihead_attention = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout)
-        self.mha_normalize = nn.LayerNorm(d_model)
-        self.ffn_norm = nn.LayerNorm(d_model)
-        self.ffn_inner = nn.Linear(d_model, d_ff)
-        self.ffn_outer = nn.Linear(d_ff, d_model)
-        self.nonlinearity = NonsatActivation()
+        self.feedforwad = PositionwiseFeedForward(d_model, d_ff, dropout)
+        self.subalyers = clone(SublayerConnection(d_model, dropout), 2)
 
         # stack & hidden state elements
+        self.nonlinearity = NonsatActivation()
         self.W = nn.Linear(d_model, d_hidden)
         self.R = nn.Linear(d_hidden, d_hidden)
         self.P = nn.Linear(stack_width, d_hidden)
@@ -151,33 +201,35 @@ class StackDecoderLayer(nn.Module):
         x_in, hidden_prev, stack_prev = inp
         seq_length, batch_size, _ = x_in.shape
         mask = _create_attn_mask(seq_length, x_in.device)
+        k_mask = self.k_padding_mask_func()
 
         # masked multihead self-attention
-        x, _ = self.multihead_attention(x_in, x_in, x_in, attn_mask=mask, need_weights=False)
-        x = x_in + x
-        x = self.mha_normalize(x)
-        x = self.nonlinearity(x)
+        x = self.subalyers[0](x_in, lambda x: self.multihead_attention(x, x, x, key_padding_mask=k_mask,
+                                                                       attn_mask=mask, need_weights=False)[0])
 
-        # hidden state ops
-        stack_x = stack_prev[:, :, 0, :].view(batch_size, seq_length, -1)
-        hidden = self.W(x.permute(1, 0, 2)) + self.R(hidden_prev) + self.P(stack_x)
-        hidden = self.nonlinearity(hidden)
+        hidden = hidden_prev
+        stack = stack_prev
+        if self.use_memory:
+            # hidden state ops
+            stack_x = stack_prev[:, :, 0, :].view(batch_size, seq_length, -1)
+            hidden = self.W(x.permute(1, 0, 2)) + self.R(hidden_prev) + self.P(stack_x)
+            hidden = self.nonlinearity(hidden)
 
-        # stack ops
-        vx = torch.cat([x, hidden.permute(1, 0, 2)], dim=-1)
-        y = self.U(torch.softmax(self.V(vx), dim=-1))
+            # stack ops
+            vx = torch.cat([x, hidden.permute(1, 0, 2)], dim=-1)
+            y = self.U(torch.softmax(self.V(vx), dim=-1))
 
-        # pooling
-        x = torch.stack([x, y])
-        x = torch.mean(x, dim=0)
+            # pooling
+            x = torch.stack([x, y])
+            x = torch.mean(x, dim=0)
 
-        # stack update
-        stack_inp = self.nonlinearity(self.D(hidden)).unsqueeze(2)
-        stack_controls = torch.softmax(self.A(hidden), dim=-1)
-        stack = self.stack_augmentation(stack_inp, stack_prev, stack_controls)
+            # stack update
+            stack_inp = self.nonlinearity(self.D(hidden)).unsqueeze(2)
+            stack_controls = torch.softmax(self.A(hidden), dim=-1)
+            stack = self.stack_augmentation(stack_inp, stack_prev, stack_controls)
 
         # FFN module
-        x = self.ffn_norm(x + self.ffn_outer(self.nonlinearity(self.ffn_inner(x))))
+        x = self.subalyers[1](x, self.feedforwad)
         return x, hidden, stack
 
     def stack_augmentation(self, input_val, stack_prev, controls):
@@ -232,3 +284,52 @@ class AttentionTerminal(nn.Module):
     def forward(self, inp):
         """Prepares the final attention output before applying feeding to classifier."""
         return inp[0]
+
+
+class LinearOut(nn.Module):
+    def __init__(self, in_embed_func):
+        super(LinearOut, self).__init__()
+        assert callable(in_embed_func)
+        self.weight_func = in_embed_func
+        self.d_model = self.weight_func().shape[0]
+        self.bias = nn.Parameter(torch.zeros(self.d_model))
+
+    def forward(self, x):
+        U = self.weight_func()
+        x = F.linear(x, U, self.bias)
+        return x
+
+
+class AttentionOptimizer:
+    """Credits: http://nlp.seas.harvard.edu/2018/04/03/attention.html"""
+
+    def __init__(self, model_size, factor, warmup, optimizer):
+        self.optimizer = optimizer
+        self._step = 0
+        self.warmup = warmup
+        self.factor = factor
+        self.model_size = model_size
+        self._rate = 0
+
+    def step(self):
+        "Update parameters and rate"
+        self._step += 1
+        rate = self.rate()
+        for p in self.optimizer.param_groups:
+            p['lr'] = rate
+        self._rate = rate
+        self.optimizer.step()
+
+    def rate(self, step=None):
+        "Implement `lrate` above"
+        if step is None:
+            step = self._step
+        return self.factor * (self.model_size ** (-0.5) * min(step ** (-0.5), step * self.warmup ** (-1.5)))
+
+    def zero_grad(self):
+        self.optimizer.zero_grad()
+
+
+def get_std_opt(model, d_model):
+    return AttentionOptimizer(d_model, 2, 4000,
+                              torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))

@@ -27,11 +27,11 @@ from tqdm import tqdm
 
 from gpmt.data import GeneratorData
 from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionInitialize, AttentionTerminal, \
-    NonsatActivation
+    NonsatActivation, AttentionOptimizer
 from gpmt.tboard import TBMeanTracker
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count
 
-device = 'cuda'
+device = 'cpu'
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -55,6 +55,9 @@ class GpmtPretrain(Trainer):
         gen_data.set_batch_size(hparams['batch_size'])
 
         # Create stack-augmented transformer (Decoder) layer(s)
+        encoder = Encoder(vocab_size=gen_data.n_characters, d_model=hparams['d_model'],
+                          padding_idx=gen_data.char2idx[gen_data.pad_symbol],
+                          dropout=hparams['dropout'])
         attn_layers = []
         for i in range(hparams['attn_layers']):
             attn_layers.append(
@@ -65,7 +68,8 @@ class GpmtPretrain(Trainer):
                                   stack_width=hparams['stack_width'],
                                   d_ff=hparams['d_ff'],
                                   d_ss=hparams['d_ss'],
-                                  dropout=hparams['dropout'])
+                                  dropout=hparams['dropout'],
+                                  k_mask_func=encoder.k_padding_mask)
             )
 
         # Create classifier layers (post-attention layers)
@@ -74,15 +78,13 @@ class GpmtPretrain(Trainer):
         for dim in hparams['lin_dims']:
             classifier_layers.append(nn.Linear(p, dim))
             classifier_layers.append(nn.LayerNorm(dim))
-            classifier_layers.append(NonsatActivation())
+            classifier_layers.append(nn.ReLU())
             classifier_layers.append(nn.Dropout(hparams['dropout']))
             p = dim
         classifier_layers.append(nn.Linear(p, gen_data.n_characters))
 
         # Create main model
-        model = nn.Sequential(Encoder(vocab_size=gen_data.n_characters,
-                                      d_model=hparams['d_model'],
-                                      padding_idx=gen_data.char2idx[gen_data.pad_symbol]),
+        model = nn.Sequential(encoder,
                               PositionalEncoding(d_model=hparams['d_model'],
                                                  dropout=hparams['dropout']),
                               AttentionInitialize(d_hidden=hparams['d_hidden'],
@@ -92,9 +94,14 @@ class GpmtPretrain(Trainer):
                               *attn_layers,
                               AttentionTerminal(),
                               *classifier_layers)
-        model = model.cuda()
+        if use_cuda:
+            model = model.cuda()
 
         optimizer = parse_optimizer(hparams, model)
+        # optimizer = AttentionOptimizer(model_size=hparams['d_model'],
+        #                                factor=2,
+        #                                warmup=4000,
+        #                                optimizer=parse_optimizer(hparams, model))
 
         return model, optimizer, gen_data
 
@@ -135,7 +142,7 @@ class GpmtPretrain(Trainer):
         grad_stats = GradStats(model, beta=0.)
 
         # learning rate decay schedulers
-        scheduler = sch.StepLR(optimizer, step_size=500, gamma=0.01)
+        # scheduler = sch.StepLR(optimizer, step_size=500, gamma=0.01)
 
         # pred_loss functions
         criterion = nn.CrossEntropyLoss(ignore_index=gen_data.char2idx[gen_data.pad_symbol])
@@ -249,7 +256,7 @@ class GpmtPretrain(Trainer):
                             if e_avg.value > epoch_ckpt[1]:
                                 terminate_training = True
                         print("\nPhase: {}, avg task pred_loss={:.4f}, ".format(phase, np.nanmean(epoch_losses)))
-                        scheduler.step()
+                        # scheduler.step()
                     else:
                         mean_score = np.mean(epoch_scores)
                         if best_score < mean_score:
