@@ -27,7 +27,7 @@ from tqdm import tqdm
 
 from gpmt.data import GeneratorData
 from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionInitialize, AttentionTerminal, \
-    NonsatActivation, AttentionOptimizer
+    NonsatActivation, AttentionOptimizer, LinearOut, LabelSmoothing, get_std_opt
 from gpmt.tboard import TBMeanTracker
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count
 
@@ -69,7 +69,8 @@ class GpmtPretrain(Trainer):
                                   d_ff=hparams['d_ff'],
                                   d_ss=hparams['d_ss'],
                                   dropout=hparams['dropout'],
-                                  k_mask_func=encoder.k_padding_mask)
+                                  k_mask_func=encoder.k_padding_mask,
+                                  use_memory=False)
             )
 
         # Create classifier layers (post-attention layers)
@@ -82,6 +83,7 @@ class GpmtPretrain(Trainer):
             classifier_layers.append(nn.Dropout(hparams['dropout']))
             p = dim
         classifier_layers.append(nn.Linear(p, gen_data.n_characters))
+        # classifier_layers.append(LinearOut(encoder.embeddings_weight, p, hparams['d_model'], hparams['dropout']))
 
         # Create main model
         model = nn.Sequential(encoder,
@@ -98,6 +100,7 @@ class GpmtPretrain(Trainer):
             model = model.cuda()
 
         optimizer = parse_optimizer(hparams, model)
+        # optimizer = get_std_opt(model, hparams['d_model'])
         # optimizer = AttentionOptimizer(model_size=hparams['d_model'],
         #                                factor=2,
         #                                warmup=4000,
@@ -146,6 +149,7 @@ class GpmtPretrain(Trainer):
 
         # pred_loss functions
         criterion = nn.CrossEntropyLoss(ignore_index=gen_data.char2idx[gen_data.pad_symbol])
+        # criterion = LabelSmoothing(gen_data.n_characters, gen_data.char2idx[gen_data.pad_symbol], 0.1)
 
         # sub-nodes of sim data resource
         loss_lst = []
@@ -194,8 +198,8 @@ class GpmtPretrain(Trainer):
                                 # forward propagation
                                 predictions = model(inputs)
                                 predictions = predictions.permute(1, 0, -1)
-                                predictions = predictions.reshape(-1, predictions.shape[-1])
-                                labels = labels.reshape(-1)
+                                predictions = predictions.contiguous().view(-1, predictions.shape[-1])
+                                labels = labels.contiguous().view(-1)
 
                                 # calculate loss
                                 loss = criterion(predictions, labels)
@@ -377,14 +381,14 @@ def main(flags):
 
 def default_hparams_bopt(args):
     return {
-        'attn_heads': 2,
+        'attn_heads': 8,
         'attn_layers': 3,
-        'lin_dims': [512, 256],
+        'lin_dims': [1024, 256],
         'dropout': 0.2,
-        'd_model': 64,
-        'd_hidden': 32,
-        'stack_width': 16,
-        'stack_depth': 20,
+        'd_model': 128,
+        'd_hidden': 128,
+        'stack_width': 64,
+        'stack_depth': 100,
         'd_ff': 2048,
         "d_ss": 512,
         'batch_size': 32,
@@ -406,7 +410,7 @@ def get_hparam_config(args):
         "stack_width": DiscreteParam(min=10, max=64),
         "stack_depth": DiscreteParam(min=10, max=64),
         "d_ff": DiscreteParam(min=128, max=2048),
-        "d_ss": DiscreteParam(min=128, max=1024),
+        "d_ss": DiscreteParam(min=128, max=2024),
         "dropout": RealParam(0.0, max=0.5),
         "batch_size": CategoricalParam(choices=[32, 64, 128]),
 

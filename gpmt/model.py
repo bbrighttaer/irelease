@@ -170,12 +170,13 @@ class StackDecoderLayer(nn.Module):
         self.k_padding_mask_func = k_mask_func
         self.multihead_attention = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout)
         self.feedforwad = PositionwiseFeedForward(d_model, d_ff, dropout)
-        self.subalyers = clone(SublayerConnection(d_model, dropout), 2)
+        self.subalyers = nn.ModuleList([SublayerConnection(d_model, dropout),
+                                        SublayerConnection(d_model, dropout)])
 
         # stack & hidden state elements
         self.nonlinearity = NonsatActivation()
         self.W = nn.Linear(d_model, d_hidden)
-        self.R = nn.Linear(d_hidden, d_hidden)
+        # self.R = nn.Linear(d_hidden, d_hidden)
         self.P = nn.Linear(stack_width, d_hidden)
         self.V = nn.Linear(d_model + d_hidden, d_ss, bias=False)
         self.U = nn.Linear(d_ss, d_model, bias=False)
@@ -198,7 +199,7 @@ class StackDecoderLayer(nn.Module):
                 (batch_size, seq. length, d_hidden)
             [2]: the updated stack. (batch_size, seq. length, stack_depth, stack_width).
         """
-        x_in, hidden_prev, stack_prev = inp
+        x_in, stack_prev = inp
         seq_length, batch_size, _ = x_in.shape
         mask = _create_attn_mask(seq_length, x_in.device)
         k_mask = self.k_padding_mask_func()
@@ -207,12 +208,11 @@ class StackDecoderLayer(nn.Module):
         x = self.subalyers[0](x_in, lambda x: self.multihead_attention(x, x, x, key_padding_mask=k_mask,
                                                                        attn_mask=mask, need_weights=False)[0])
 
-        hidden = hidden_prev
         stack = stack_prev
         if self.use_memory:
             # hidden state ops
             stack_x = stack_prev[:, :, 0, :].view(batch_size, seq_length, -1)
-            hidden = self.W(x.permute(1, 0, 2)) + self.R(hidden_prev) + self.P(stack_x)
+            hidden = self.W(x.permute(1, 0, 2)) + self.P(stack_x)
             hidden = self.nonlinearity(hidden)
 
             # stack ops
@@ -221,7 +221,7 @@ class StackDecoderLayer(nn.Module):
 
             # pooling
             x = torch.stack([x, y])
-            x = torch.mean(x, dim=0)
+            x = torch.max(x, dim=0)[0]
 
             # stack update
             stack_inp = self.nonlinearity(self.D(hidden)).unsqueeze(2)
@@ -230,7 +230,7 @@ class StackDecoderLayer(nn.Module):
 
         # FFN module
         x = self.subalyers[1](x, self.feedforwad)
-        return x, hidden, stack
+        return x, stack
 
     def stack_augmentation(self, input_val, stack_prev, controls):
         """
@@ -275,9 +275,9 @@ class AttentionInitialize(nn.Module):
             Encoded input of shape (Seq. length, batch_size, d_model)
         :return:
         """
-        h0 = init_hidden(x.shape[1], x.shape[0], self.d_hidden, dvc=self.dvc)
+        # h0 = init_hidden(x.shape[1], x.shape[0], self.d_hidden, dvc=self.dvc)
         s0 = init_stack(x.shape[1], x.shape[0], self.s_depth, self.s_width, dvc=self.dvc)
-        return x, h0, s0
+        return x, s0
 
 
 class AttentionTerminal(nn.Module):
@@ -287,16 +287,19 @@ class AttentionTerminal(nn.Module):
 
 
 class LinearOut(nn.Module):
-    def __init__(self, in_embed_func):
+    def __init__(self, in_embed_func, in_dim, d_model, dropout=0.):
         super(LinearOut, self).__init__()
         assert callable(in_embed_func)
         self.weight_func = in_embed_func
-        self.d_model = self.weight_func().shape[0]
-        self.bias = nn.Parameter(torch.zeros(self.d_model))
+        self.vocab_size = self.weight_func().shape[0]
+        self.linear = nn.Linear(in_dim, d_model)
+        self.normalize = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         U = self.weight_func()
-        x = F.linear(x, U, self.bias)
+        x = self.dropout(torch.relu(self.normalize(self.linear(x))))
+        x = F.linear(x, U)
         return x
 
 
@@ -333,3 +336,28 @@ class AttentionOptimizer:
 def get_std_opt(model, d_model):
     return AttentionOptimizer(d_model, 2, 4000,
                               torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+
+
+class LabelSmoothing(nn.Module):
+
+    def __init__(self, size, padding_idx, smoothing=0.0):
+        super(LabelSmoothing, self).__init__()
+        self.criterion = nn.KLDivLoss(reduction='batchmean')
+        self.padding_idx = padding_idx
+        self.confidence = 1.0 - smoothing
+        self.smoothing = smoothing
+        self.size = size
+        self.true_dist = None
+
+    def forward(self, x, target):
+        assert x.size(1) == self.size
+        true_dist = x.data.clone()
+        true_dist.fill_(self.smoothing / (self.size - 2))
+        true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
+        true_dist[:, self.padding_idx] = 0
+        mask = torch.nonzero(target.data == self.padding_idx)
+        if mask.dim() > 0:
+            true_dist.index_fill_(0, mask.squeeze(), 0.0)
+        self.true_dist = true_dist
+        loss = self.criterion(x, true_dist)
+        return loss

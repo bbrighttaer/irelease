@@ -51,7 +51,7 @@ class MyTestCase(unittest.TestCase):
         stack_decoder = StackDecoderLayer(d_model=d_model, num_heads=1,
                                           d_hidden=d_hidden, stack_depth=s_depth,
                                           stack_width=s_width, dropout=.1)
-        out = stack_decoder((x, h0, s0))
+        out = stack_decoder((x, s0))
         assert (len(out) == 3)
 
     def test_input_equals_output_embeddings(self):
