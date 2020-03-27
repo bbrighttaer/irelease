@@ -267,7 +267,7 @@ class GpmtPretrain(Trainer):
                             best_score = mean_score
                             best_model_wts = copy.deepcopy(model.state_dict())
                             best_epoch = epoch
-        except ImportError as e:
+        except RuntimeError as e:
             print(str(e))
 
         duration = time.time() - start
