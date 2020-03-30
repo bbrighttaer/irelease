@@ -31,14 +31,12 @@ from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, Attention
 from gpmt.tboard import TBMeanTracker
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count
 
-device = 'cpu'
+device = 'cuda'
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
 seeds = [1]
-
-check_data = False
 
 if torch.cuda.is_available():
     dvc_id = 2
@@ -70,7 +68,7 @@ class GpmtPretrain(Trainer):
                                   d_ss=hparams['d_ss'],
                                   dropout=hparams['dropout'],
                                   k_mask_func=encoder.k_padding_mask,
-                                  use_memory=False)
+                                  use_memory=True)
             )
 
         # Create classifier layers (post-attention layers)
@@ -297,7 +295,7 @@ class GpmtPretrain(Trainer):
 
 
 def main(flags):
-    sim_label = 'GPMT-pretraining'
+    sim_label = 'GPMT-pretraining-memory'
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
