@@ -31,7 +31,6 @@ from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, Attention
 from gpmt.tboard import TBMeanTracker
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count
 
-device = 'cuda'
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -41,8 +40,10 @@ seeds = [1]
 if torch.cuda.is_available():
     dvc_id = 2
     use_cuda = True
+    device = 'cuda'
     torch.cuda.set_device(dvc_id)
 else:
+    device = 'cpu'
     use_cuda = None
     dvc_id = 0
 
