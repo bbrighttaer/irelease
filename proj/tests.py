@@ -2,7 +2,8 @@ import unittest
 import torch
 from gpmt.data import GeneratorData
 from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut
-from gpmt.utils import init_hidden, init_stack, get_default_tokens
+from gpmt.stackrnn import StackRNNCell
+from gpmt.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d
 
 gen_data_path = '../data/chembl_xsmall.smi'
 # tokens = get_default_tokens()
@@ -46,8 +47,8 @@ class MyTestCase(unittest.TestCase):
         x = encoder(x)
         pe = PositionalEncoding(d_model, dropout=.2, max_len=500)
         x = pe(x)
-        h0 = init_hidden(x.shape[1], x.shape[0], d_hidden)
-        s0 = init_stack(x.shape[1], x.shape[0], s_depth, s_width)
+        h0 = init_hidden_2d(x.shape[1], x.shape[0], d_hidden)
+        s0 = init_stack_2d(x.shape[1], x.shape[0], s_depth, s_width)
         stack_decoder = StackDecoderLayer(d_model=d_model, num_heads=1,
                                           d_hidden=d_hidden, stack_depth=s_depth,
                                           stack_width=s_width, dropout=.1)
@@ -61,6 +62,52 @@ class MyTestCase(unittest.TestCase):
         x = encoder(x)
         x_out = lin_out(x)
         assert x.shape == x_out.shape
+
+    def test_stack_rnn_cell(self):
+        x, y = gen_data.random_training_set(batch_size=bz)
+        d_model = 128
+        hidden_size = 16
+        stack_width = 10
+        stack_depth = 20
+        num_layers = 1
+        num_dir = 2
+        encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol])
+        x = encoder(x)
+        rnn_cells = []
+        in_dim = d_model
+        cell_type = 'gru'
+        for _ in range(num_layers):
+            rnn_cells.append(StackRNNCell(in_dim, hidden_size, has_stack=True,
+                                          unit_type=cell_type, stack_depth=stack_depth,
+                                          stack_width=stack_width))
+            in_dim = hidden_size * num_dir
+        rnn_cells = torch.nn.ModuleList(rnn_cells)
+
+        h0 = init_hidden(num_layers=num_layers, batch_size=bz, hidden_size=hidden_size,
+                         num_dir=num_dir)
+        c0 = init_hidden(num_layers=num_layers, batch_size=bz, hidden_size=hidden_size, num_dir=num_dir)
+        s0 = init_stack(bz, stack_width, stack_depth)
+
+        seq_length = x.shape[0]
+        hidden_outs = torch.zeros(num_layers, num_dir, seq_length, bz, hidden_size)
+        if cell_type == 'lstm':
+            cell_outs = torch.zeros(num_layers, num_dir, seq_length, bz, hidden_size)
+        assert 0 <= num_dir <= 2
+        for l in range(num_layers):
+            for d in range(num_dir):
+                h, c, stack = h0[l, d, :], c0[l, d, :], s0
+                if d == 0:
+                    indices = range(x.shape[0])
+                else:
+                    indices = reversed(range(x.shape[0]))
+                for i in indices:
+                    x_t = x[i, :, :]
+                    hx, stack = rnn_cells[l](x_t, h, c, stack)
+                    if cell_type == 'lstm':
+                        hidden_outs[l, d, i, :, :] = hx[0]
+                        cell_outs[l, d, i, :, :] = hx[1]
+                    else:
+                        hidden_outs[l, d, i, :, :] = hx
 
 
 if __name__ == '__main__':

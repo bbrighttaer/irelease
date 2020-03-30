@@ -323,7 +323,7 @@ def read_object_property_file(path, delimiter=',', cols_to_read=[0, 1],
     return data
 
 
-def init_hidden(batch_size, seq_length, d_hidden, dvc='cpu'):
+def init_hidden_2d(batch_size, seq_length, d_hidden, dvc='cpu'):
     """
     Initialization of the hidden state of RNN.
 
@@ -335,7 +335,7 @@ def init_hidden(batch_size, seq_length, d_hidden, dvc='cpu'):
     return torch.zeros(batch_size, seq_length, d_hidden).to(dvc)
 
 
-def init_stack(batch_size, seq_length, stack_depth, stack_width, dvc='cpu'):
+def init_stack_2d(batch_size, seq_length, stack_depth, stack_width, dvc='cpu'):
     """
     Initialization of the stack state.
 
@@ -345,6 +345,18 @@ def init_stack(batch_size, seq_length, stack_depth, stack_width, dvc='cpu'):
         tensor filled with zeros
     """
     return torch.zeros(batch_size, seq_length, stack_depth, stack_width).to(dvc)
+
+
+def init_stack(batch_size, stack_width, stack_depth, dvc='cpu'):
+    return torch.zeros(batch_size, stack_depth, stack_width).to(dvc)
+
+
+def init_hidden(num_layers, batch_size, hidden_size, num_dir=1, dvc='cpu'):
+    return torch.zeros(num_layers, num_dir, batch_size, hidden_size).to(dvc)
+
+
+def init_cell(num_layers, batch_size, hidden_size, num_dir=1, dvc='cpu'):
+    return init_hidden(num_layers, batch_size, hidden_size, num_dir, dvc)
 
 
 class Flags(object):
