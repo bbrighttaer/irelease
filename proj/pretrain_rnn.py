@@ -63,7 +63,7 @@ class GpmtPretrain(Trainer):
                                        stack_depth=hparams['stack_depth'],
                                        dropout=hparams['dropout'],
                                        k_mask_func=encoder.k_padding_mask,
-                                       num_heads=hparams['num_heads']),
+                                       num_heads=hparams['attn_heads']),
                               StackRNNLinear(out_dim=gen_data.n_characters,
                                              hidden_size=hparams['d_hidden'],
                                              bidirectional=hparams['bidirectional']))
@@ -369,7 +369,7 @@ def get_hparam_config(args):
         'bidirectional': CategoricalParam([True, False]),
         'num_layers': DiscreteParam(min=1, max=8),
         "d_model": CategoricalParam(choices=[128, 256, 512, 1024]),
-        "d_hidden": DiscreteParam(min=10, max=64),
+        "d_hidden": CategoricalParam([16, 32, 64, 128]),
         "stack_width": DiscreteParam(min=10, max=64),
         "stack_depth": DiscreteParam(min=10, max=64),
         "attn_heads": CategoricalParam([1, 2, 4, 8]),
