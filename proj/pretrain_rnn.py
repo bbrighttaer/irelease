@@ -372,6 +372,7 @@ def get_hparam_config(args):
         "d_hidden": DiscreteParam(min=10, max=64),
         "stack_width": DiscreteParam(min=10, max=64),
         "stack_depth": DiscreteParam(min=10, max=64),
+        "attn_heads": CategoricalParam([1, 2, 4, 8]),
         "dropout": RealParam(0.0, max=0.5),
         "batch_size": CategoricalParam(choices=[32, 64, 128]),
 
