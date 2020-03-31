@@ -1,7 +1,7 @@
 import unittest
 import torch
 from gpmt.data import GeneratorData
-from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut
+from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear
 from gpmt.stackrnn import StackRNNCell
 from gpmt.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d
 
@@ -108,6 +108,23 @@ class MyTestCase(unittest.TestCase):
                         cell_outs[l, d, i, :, :] = hx[1]
                     else:
                         hidden_outs[l, d, i, :, :] = hx
+
+    def test_stack_rnn(self):
+        x, y = gen_data.random_training_set(batch_size=bz)
+        d_model = 128
+        hidden_size = 16
+        stack_width = 10
+        stack_depth = 20
+        num_layers = 2
+        encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol])
+        x = encoder(x)
+        stack_rnn = StackRNN(d_model, hidden_size, True, 'lstm', True, num_layers, stack_width, stack_depth,
+                             dropout=0.2, k_mask_func=encoder.k_padding_mask)
+        outputs = stack_rnn(x)
+        assert len(outputs) > 1
+        linear = StackRNNLinear(4, hidden_size, True)
+        x = linear(outputs)
+        print(x.shape)
 
 
 if __name__ == '__main__':
