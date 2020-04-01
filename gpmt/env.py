@@ -6,6 +6,7 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import copy
 import numpy as np
 import gym
 from gym.utils import seeding
@@ -26,30 +27,39 @@ class MoleculeEnv(gym.Env):
         self.max_len = max_len
         self.action_space = MolDiscrete(n=gen_data.n_characters, all_chars=gen_data.all_characters)
         self.observation_space = MolDiscrete(n=max_len, all_chars=gen_data.all_characters, dim=max_len)
-        self.state = [self.start_char]
+        self._state = [self.start_char]
         self.np_random = None
         self.seed(seed)
 
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, s):
+        self._state = s
+
     def reset(self):
-        self.state = [self.start_char]
-        return self.state
+        self._state = [self.start_char]
+        return self._state
 
     def step(self, action):
         assert isinstance(action, str) and len(action) == 1
         assert self.action_space.contains(action), 'Selected action is out of range.'
-        prev_state = self.state
-        self.state.append(action)
-        reward = self.reward_func(self.state)
-        if len(self.state) == self.max_len or self.state[-1] == self.end_char:
+        prev_state = self._state
+        self._state.append(action)
+        use_mc = self._state[-1] != self.end_char
+        reward = self.reward_func(self._state, use_mc)
+        if len(self._state) == self.max_len or self._state[-1] == self.end_char:
             done = True
         else:
             done = False
         info = {'prev_state': prev_state}
-        return np.array(self.state, dtype=np.object), reward, done, info
+        return np.array(self._state, dtype=np.object), reward, done, info
 
     def render(self, mode='human'):
         if mode == 'human':
-            log(self.state)
+            log(self._state)
 
     def close(self):
         pass
@@ -58,6 +68,9 @@ class MoleculeEnv(gym.Env):
         self.np_random, seed1 = seeding.np_random(seed)
         seed2 = seeding.hash_seed(seed1 + 1) % 2 ** 31
         return [seed1, seed2]
+
+    def clone(self):
+        return copy.deepcopy(self)
 
 
 def log(s):

@@ -138,6 +138,7 @@ class MyTestCase(unittest.TestCase):
             action = env.action_space.sample()
             s_prime, reward, done, info = env.step(action)
             if done:
+                env.reset()
                 break
 
 
