@@ -15,5 +15,5 @@ setup(
     license='',
     author='Brighter Agyemang',
     author_email='brighteragyemang@gmail.com',
-    description=''
+    description='', install_requires=['gym', 'numpy']
 )

@@ -1,7 +1,9 @@
 import unittest
 import torch
 from gpmt.data import GeneratorData
+from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear
+from gpmt.reward import RewardFunction
 from gpmt.stackrnn import StackRNNCell
 from gpmt.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d
 
@@ -125,6 +127,18 @@ class MyTestCase(unittest.TestCase):
         linear = StackRNNLinear(4, hidden_size, True)
         x = linear(outputs)
         print(x.shape)
+
+    def test_mol_env(self):
+        env = MoleculeEnv(gen_data, RewardFunction())
+        print(f'sample action: {env.action_space.sample()}')
+        print(f'sample observation: {env.observation_space.sample()}')
+        s = env.reset()
+        for i in range(5):
+            env.render()
+            action = env.action_space.sample()
+            s_prime, reward, done, info = env.step(action)
+            if done:
+                break
 
 
 if __name__ == '__main__':
