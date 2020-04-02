@@ -382,13 +382,13 @@ class StackRNN(nn.Module):
             self.num_dir = 1
         self.normalize_h = nn.LayerNorm(hidden_size)
         self.normalize_x = nn.LayerNorm(hidden_size * self.num_dir)
-        if num_heads > 0:
-            assert callable(k_mask_func)
-            self.k_padding_mask_func = k_mask_func
-            self.masked_mha = nn.ModuleList([nn.MultiheadAttention(hidden_size * self.num_dir,
-                                                                   num_heads=num_heads,
-                                                                   dropout=dropout) for _ in range(num_layers - 1)])
-            self.sublayer = SublayerConnection(hidden_size * self.num_dir, dropout)
+        # if num_heads > 0:
+        #     assert callable(k_mask_func)
+        #     self.k_padding_mask_func = k_mask_func
+        #     self.masked_mha = nn.ModuleList([nn.MultiheadAttention(hidden_size * self.num_dir,
+        #                                                            num_heads=num_heads,
+        #                                                            dropout=dropout) for _ in range(num_layers - 1)])
+        #     self.sublayer = SublayerConnection(hidden_size * self.num_dir, dropout)
         rnn_cells = []
         in_dim = input_size
         for _ in range(num_layers):
