@@ -15,6 +15,24 @@ from gpmt.reward import RewardFunction
 
 
 class MoleculeEnv(gym.Env):
+    """
+    A custom gym environment for generating molecules.
+
+    Arguments:
+    ----------
+    :param gen_data:
+        Instance of ::class::GeneratorData. It provides dataset information needed in the environment.
+    :param reward_func:
+        Instance of ::class::RewardFunction. It provides the reward function for the environment.
+    :param start_char:
+        Character that denotes the beginning of a SMILES string.
+    :param end_char:
+        Character that denotes the end of a SMILES string during generation.
+    :param max_len:
+        The maximum number of characters that could be contained in a generated string.
+    :param seed:
+        Seed value for the numpy PRNG used in by the environment.
+    """
     metadata = {'render.modes': ['human']}
 
     def __init__(self, gen_data, reward_func, start_char='<', end_char='>', max_len=100, seed=None):

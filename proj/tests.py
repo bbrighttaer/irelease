@@ -145,9 +145,18 @@ class MyTestCase(unittest.TestCase):
     def test_molecule_mcts(self):
         env = MoleculeEnv(gen_data, RewardFunction(reward_net=None,
                                                    policy=lambda x: gen_data.all_characters[
-                                                       np.random.randint(0, gen_data.n_characters)],
+                                                       np.random.randint(gen_data.n_characters)],
                                                    actions=gen_data.all_characters))
-        # for i in range(5):
+        rewards = []
+        for i in range(5):
+            env.render()
+            action = env.action_space.sample()
+            s_prime, reward, done, info = env.step(action)
+            rewards.append(reward)
+            if done:
+                env.reset()
+                break
+        print(f'rewards: {rewards}')
 
 
 if __name__ == '__main__':
