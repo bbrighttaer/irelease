@@ -1,4 +1,5 @@
 import unittest
+import numpy as np
 import torch
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
@@ -140,6 +141,13 @@ class MyTestCase(unittest.TestCase):
             if done:
                 env.reset()
                 break
+
+    def test_molecule_mcts(self):
+        env = MoleculeEnv(gen_data, RewardFunction(reward_net=None,
+                                                   policy=lambda x: gen_data.all_characters[
+                                                       np.random.randint(0, gen_data.n_characters)],
+                                                   actions=gen_data.all_characters))
+        # for i in range(5):
 
 
 if __name__ == '__main__':

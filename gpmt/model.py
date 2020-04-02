@@ -460,9 +460,9 @@ class StackRNN(nn.Module):
                 x = self.dropout(torch.relu(self.normalize_x(x)))
 
                 # masked-multihead self-attention
-                if len(self.masked_mha) > 0:
-                    x = self.sublayer(x, lambda v: self.masked_mha[l](v, v, v, key_padding_mask=k_mask,
-                                                                      attn_mask=mask, need_weights=False)[0])
+                # if len(self.masked_mha) > 0:
+                #     x = self.sublayer(x, lambda v: self.masked_mha[l](v, v, v, key_padding_mask=k_mask,
+                #                                                       attn_mask=mask, need_weights=False)[0])
 
         # prepare outputs
         hidden_outs = hidden_outs.permute(2, 3, 0, 1, 4)

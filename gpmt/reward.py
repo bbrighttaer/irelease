@@ -6,6 +6,7 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import numpy as np
 from gpmt.monte_carlo import MoleculeMonteCarloTreeSearchNode, MonteCarloTreeSearch
 
 
@@ -28,4 +29,4 @@ class RewardFunction(object):
             return reward
         else:
             # Get reward of completed string using the reward net
-            return 0
+            return np.random.random()

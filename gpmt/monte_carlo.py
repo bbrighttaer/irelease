@@ -61,7 +61,7 @@ class MoleculeMonteCarloTreeSearchNode(object):
         state = np.copy(self.state)
         for _ in range(self.max_len):
             action = self.policy(state)
-            state = np.concatenate([self.state, list(action)])
+            state = np.concatenate([state, list(action)])
             if action == self.end_char:
                 break
         self._done = True

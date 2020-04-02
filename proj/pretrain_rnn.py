@@ -352,8 +352,8 @@ def default_hparams_bopt(args):
         'd_model': 128,
         'd_hidden': 64,
         'stack_width': 64,
-        'stack_depth': 100,
-        'num_heads': 4,
+        'stack_depth': 50,
+        'attn_heads': 4,
         'batch_size': 32,
 
         # optimizer params
