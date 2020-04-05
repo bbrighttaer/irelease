@@ -23,7 +23,7 @@ from soek import CategoricalParam, LogRealParam, RealParam, DiscreteParam, DataN
 from soek.bopt import GPMinArgs
 from soek.template import Trainer
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from gpmt.data import GeneratorData
 from gpmt.model import Encoder, StackRNN, StackRNNLinear
@@ -54,19 +54,20 @@ class GpmtPretrain(Trainer):
                           padding_idx=gen_data.char2idx[gen_data.pad_symbol], dropout=hparams['dropout'])
         model = nn.Sequential(encoder,
                               StackRNN(input_size=hparams['d_model'],
-                                       hidden_size=hparams['d_hidden'],
+                                       hidden_size=hparams['d_model'],
                                        has_stack=True,
                                        unit_type=hparams['unit_type'],
-                                       bidirectional=hparams['bidirectional'],
                                        num_layers=hparams['num_layers'],
                                        stack_width=hparams['stack_width'],
                                        stack_depth=hparams['stack_depth'],
                                        dropout=hparams['dropout'],
-                                       k_mask_func=encoder.k_padding_mask,
-                                       num_heads=hparams['attn_heads']),
+                                       k_mask_func=encoder.k_padding_mask),
                               StackRNNLinear(out_dim=gen_data.n_characters,
-                                             hidden_size=hparams['d_hidden'],
-                                             bidirectional=hparams['bidirectional']))
+                                             hidden_size=hparams['d_model'],
+                                             bidirectional=False,
+                                             encoder=encoder,
+                                             dropout=hparams['dropout'],
+                                             bias=True))
         if use_cuda:
             model = model.cuda()
         optimizer = parse_optimizer(hparams, model)
@@ -95,7 +96,7 @@ class GpmtPretrain(Trainer):
         return acc
 
     @staticmethod
-    def train(model, optimizer, gen_data, n_iters=5000, sim_data_node=None, epoch_ckpt=(2, 1.0), tb_writer=None,
+    def train(model, optimizer, gen_data, n_iters=5000, sim_data_node=None, epoch_ckpt=(1, 2.0), tb_writer=None,
               is_hsearch=False):
         tb_writer = None  # tb_writer()
         start = time.time()
@@ -152,7 +153,7 @@ class GpmtPretrain(Trainer):
                     # Iterate through mini-batches
                     # with TBMeanTracker(tb_writer, 10) as tracker:
                     with grad_stats:
-                        for b in tqdm(range(num_batches)):
+                        for b in trange(0, num_batches, desc=f'{phase} in progress...'):
                             inputs, labels = gen_data.random_training_set()
 
                             optimizer.zero_grad()
@@ -220,7 +221,7 @@ class GpmtPretrain(Trainer):
                     if phase == "train":
                         ep_loss = np.nanmean(epoch_losses)
                         e_avg.update(ep_loss)
-                        if epoch % (epoch_ckpt[0] - 1) == 0 and epoch > 0:
+                        if epoch % epoch_ckpt[0] == 0:
                             if e_avg.value > epoch_ckpt[1]:
                                 terminate_training = True
                         print("\nPhase: {}, avg task pred_loss={:.4f}, ".format(phase, np.nanmean(epoch_losses)))
@@ -346,14 +347,11 @@ def main(flags):
 def default_hparams_bopt(args):
     return {
         'unit_type': 'lstm',
-        'bidirectional': True,
-        'num_layers': 3,
+        'num_layers': 5,
         'dropout': 0.2,
-        'd_model': 128,
-        'd_hidden': 64,
+        'd_model': 64,
         'stack_width': 64,
         'stack_depth': 50,
-        'attn_heads': 4,
         'batch_size': 32,
 
         # optimizer params
@@ -366,14 +364,11 @@ def default_hparams_bopt(args):
 def get_hparam_config(args):
     config = {
         'unit_type': CategoricalParam(choices=['gru', 'lstm']),
-        'bidirectional': CategoricalParam([True, False]),
-        'num_layers': DiscreteParam(min=1, max=8),
-        "d_model": CategoricalParam(choices=[128, 256, 512, 1024]),
-        "d_hidden": CategoricalParam([16, 32, 64, 128]),
-        "stack_width": DiscreteParam(min=10, max=64),
+        'num_layers': DiscreteParam(min=1, max=10),
+        "d_model": DiscreteParam(min=32, max=1024),
+        "stack_width": DiscreteParam(min=10, max=128),
         "stack_depth": DiscreteParam(min=10, max=64),
-        "attn_heads": CategoricalParam([1, 2, 4, 8]),
-        "dropout": RealParam(0.0, max=0.5),
+        "dropout": RealParam(0.0, max=0.3),
         "batch_size": CategoricalParam(choices=[32, 64, 128]),
 
         # optimizer params

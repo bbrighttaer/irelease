@@ -365,36 +365,36 @@ class LabelSmoothing(nn.Module):
 
 
 class StackRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, has_stack, unit_type='lstm', bidirectional=False,
-                 num_layers=1, stack_width=None, stack_depth=None, bias=True, dropout=0., num_heads=2,
-                 k_mask_func=None):
+    def __init__(self, input_size, hidden_size, has_stack, unit_type='lstm', num_layers=1, stack_width=None,
+                 stack_depth=None, bias=True, dropout=0., k_mask_func=None):
         super(StackRNN, self).__init__()
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
+        self.num_layers = int(num_layers)
+        self.hidden_size = int(hidden_size)
         self.has_stack = has_stack
-        self.stack_width = stack_width
-        self.stack_depth = stack_depth
+        self.stack_width = int(stack_width)
+        self.stack_depth = int(stack_depth)
         self.unit_type = unit_type
-        self.dropout = nn.Dropout(dropout)
-        if bidirectional:
-            self.num_dir = 2
-        else:
-            self.num_dir = 1
-        self.normalize_h = nn.LayerNorm(hidden_size)
+        self.num_dir = 1
         self.normalize_x = nn.LayerNorm(hidden_size * self.num_dir)
-        # if num_heads > 0:
-        #     assert callable(k_mask_func)
-        #     self.k_padding_mask_func = k_mask_func
-        #     self.masked_mha = nn.ModuleList([nn.MultiheadAttention(hidden_size * self.num_dir,
-        #                                                            num_heads=num_heads,
-        #                                                            dropout=dropout) for _ in range(num_layers - 1)])
-        #     self.sublayer = SublayerConnection(hidden_size * self.num_dir, dropout)
-        rnn_cells = []
-        in_dim = input_size
-        for _ in range(num_layers):
-            rnn_cells.append(StackRNNCell(in_dim, hidden_size, has_stack, unit_type, bias, stack_depth, stack_width))
-            in_dim = hidden_size * self.num_dir
-        self.rnn_cells = torch.nn.ModuleList(rnn_cells)
+        self.k_padding_mask_func = k_mask_func
+        if has_stack:
+            self.input_size = input_size + stack_width
+            self.A_linear = nn.Linear(hidden_size, 3)
+            self.D_linear = nn.Linear(hidden_size, stack_width)
+        else:
+            self.input_size = input_size
+        if self.unit_type == 'lstm':
+            self.rnn = nn.LSTM(self.input_size, self.hidden_size, self.num_layers,
+                               dropout=dropout,
+                               bidirectional=False,
+                               bias=bias)
+            self.has_cell = True
+        elif self.unit_type == 'gru':
+            self.rnn = nn.GRU(self.input_size, self.hidden_size, self.num_layers,
+                              dropout=dropout,
+                              bidirectional=False,
+                              bias=bias)
+            self.has_cell = False
 
     def forward(self, x, **kwargs):
         """
@@ -413,81 +413,88 @@ class StackRNN(nn.Module):
         """
         batch_size = x.shape[1]
         seq_length = x.shape[0]
-        h0 = init_hidden(num_layers=self.num_layers, batch_size=batch_size, hidden_size=self.hidden_size,
-                         num_dir=self.num_dir, dvc=x.device)
-        hidden_outs = torch.zeros(self.num_layers, self.num_dir, seq_length, batch_size,
-                                  self.hidden_size).to(x.device)
-        if self.unit_type == 'lstm':
-            c0 = init_cell(num_layers=self.num_layers, batch_size=batch_size, hidden_size=self.hidden_size,
-                           num_dir=self.num_dir, dvc=x.device)
-            cell_outs = torch.zeros(self.num_layers, self.num_dir, seq_length, batch_size,
-                                    self.hidden_size).to(x.device)
+        hidden = init_hidden(num_layers=self.num_layers, batch_size=batch_size, hidden_size=self.hidden_size,
+                             num_dir=self.num_dir, dvc=x.device)
+        if self.has_cell:
+            cell = init_cell(num_layers=self.num_layers, batch_size=batch_size, hidden_size=self.hidden_size,
+                             num_dir=self.num_dir, dvc=x.device)
         if self.has_stack:
-            s0 = init_stack(batch_size, self.stack_width, self.stack_depth, dvc=x.device)
+            stack = init_stack(batch_size, self.stack_width, self.stack_depth, dvc=x.device)
         else:
-            s0 = None
+            stack = None
 
-        # Key padding and future-positioning masks for the self-attention
-        k_mask = self.k_padding_mask_func()
-        mask = _create_attn_mask(seq_length, x.device)
+        # Iteratively apply stack RNN to all characters in a sequence
+        outputs = []
+        if self.has_cell:
+            hidden = (hidden, cell)
+        for c in range(seq_length):
+            if self.has_stack:
+                stack_top = stack[:, 0, :]
+                x_ = torch.cat([x[c, :, :], stack_top], dim=-1).unsqueeze(0)
+                output, hidden = self.rnn(x_, hidden)
 
-        for l in range(self.num_layers):
-            for d in range(self.num_dir):
-                h = h0[l, d, :]
-                if self.unit_type == 'lstm':
-                    c = c0[l, d, :]
-                else:
-                    c = None
-                stack = s0
-                if d == 0:
-                    indices = range(x.shape[0])
-                else:
-                    indices = reversed(range(x.shape[0]))
-                for i in indices:
-                    x_t = x[i, :, :]
-                    hx, stack = self.rnn_cells[l](x_t, h, c, stack)
-                    if self.unit_type == 'lstm':
-                        hidden_outs[l, d, i, :, :] = self.dropout(self.normalize_h(hx[0]))
-                        cell_outs[l, d, i, :, :] = self.dropout(self.normalize_h(hx[1]))
-                    else:
-                        hidden_outs[l, d, i, :, :] = self.dropout(self.normalize_h(hx))
+                # Stack update
+                controls = torch.softmax(self.A_linear(output.view(batch_size, -1)), dim=-1)
+                stack_input = torch.tanh(self.D_linear(output.view(batch_size, -1)))
+                stack = self.stack_augmentation(stack_input, stack, controls)
+            else:
+                output, hidden = self.rnn(x, hidden)
+            outputs.append(output)
 
-            # set output of the current layer as input to the next layer (if any)
-            if self.num_layers > 1 and l < self.num_layers - 1:
-                x_new = hidden_outs[l, :, :, :, :]
-                x_new = x_new.contiguous().permute(1, 2, 0, 3)
-                x = x_new.contiguous().view(seq_length, batch_size, -1)
-                x = self.dropout(torch.relu(self.normalize_x(x)))
+        outputs = torch.cat(outputs)
+        return outputs, hidden
 
-                # masked-multihead self-attention
-                # if len(self.masked_mha) > 0:
-                #     x = self.sublayer(x, lambda v: self.masked_mha[l](v, v, v, key_padding_mask=k_mask,
-                #                                                       attn_mask=mask, need_weights=False)[0])
+    def stack_augmentation(self, input_val, prev_stack, controls):
+        """
+        Augmentation of the tensor into the stack. For more details see
+        https://arxiv.org/abs/1503.01007
 
-        # prepare outputs
-        hidden_outs = hidden_outs.permute(2, 3, 0, 1, 4)
-        out = hidden_outs[:, :, -1, :, :]
-        out = out.contiguous().view(seq_length, batch_size, self.num_dir * self.hidden_size)
-        h_n = hidden_outs[-1, :, :, :, :]
-        h_n = h_n.permute(1, 2, 0, 3)
-        h_n = h_n.contiguous().view(-1, batch_size, self.hidden_size)
-        if self.unit_type == 'lstm':
-            c_n = cell_outs[:, :, -1, :, :]
-            c_n = c_n.contiguous().view(-1, batch_size, self.hidden_size)
-            return out, (h_n, c_n)
-        return out, h_n
+        Parameters
+        ----------
+        input_val: torch.tensor
+            tensor to be added to stack
+
+        prev_stack: torch.tensor
+            previous stack state
+
+        controls: torch.tensor
+            predicted probabilities for each operation in the stack, i.e
+            PUSH, POP and NO_OP. Again, see https://arxiv.org/abs/1503.01007
+
+        Returns
+        -------
+        new_stack: torch.tensor
+            new stack state
+        """
+        input_val = input_val.unsqueeze(1)
+        batch_size = prev_stack.size(0)
+        controls = controls.view(-1, 3, 1, 1)
+        zeros_at_the_bottom = torch.zeros(batch_size, 1, self.stack_width)
+        zeros_at_the_bottom = zeros_at_the_bottom.to(input_val.device)
+        a_push, a_pop, a_no_op = controls[:, 0], controls[:, 1], controls[:, 2]
+        stack_down = torch.cat((prev_stack[:, 1:], zeros_at_the_bottom), dim=1)
+        stack_up = torch.cat((input_val, prev_stack[:, :-1]), dim=1)
+        new_stack = a_no_op * prev_stack + a_push * stack_up + a_pop * stack_down
+        return new_stack
 
 
 class StackRNNLinear(nn.Module):
     """Linearly projects Stack RNN outputs to a fixed dimension"""
 
-    def __init__(self, out_dim, hidden_size, bidirectional):
+    def __init__(self, out_dim, hidden_size, bidirectional, encoder, bias=True, dropout=0.):
         super(StackRNNLinear, self).__init__()
+        assert isinstance(encoder, Encoder)
+        self.bias = bias
         if bidirectional:
             num_dir = 2
         else:
             num_dir = 1
-        self.linear = nn.Linear(hidden_size * num_dir, out_dim)
+        in_dim = hidden_size * num_dir
+        self.linear_res = nn.Linear(in_dim, in_dim)
+        if self.bias:
+            self.bias_param = nn.Parameter(torch.zeros(out_dim))
+        self.encoder = encoder
+        self.sublayer = SublayerConnection(in_dim, dropout)
 
     def forward(self, rnn_input):
         """
@@ -501,5 +508,10 @@ class StackRNNLinear(nn.Module):
             Shape: (seq_len, batch_size, out_dim)
         """
         x = rnn_input[0]
-        x = self.linear(x)
+        x = self.sublayer(x, self.linear_res)
+        weights = self.encoder.embeddings_weight()
+        if self.bias:
+            x = F.linear(x, weights, self.bias_param)
+        else:
+            x = F.linear(x, weights)
         return x

@@ -352,7 +352,7 @@ def init_stack(batch_size, stack_width, stack_depth, dvc='cpu'):
 
 
 def init_hidden(num_layers, batch_size, hidden_size, num_dir=1, dvc='cpu'):
-    return torch.zeros(num_layers, num_dir, batch_size, hidden_size).to(dvc)
+    return torch.zeros(num_layers * num_dir, batch_size, hidden_size).to(dvc)
 
 
 def init_cell(num_layers, batch_size, hidden_size, num_dir=1, dvc='cpu'):

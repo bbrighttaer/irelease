@@ -121,11 +121,11 @@ class MyTestCase(unittest.TestCase):
         num_layers = 2
         encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol])
         x = encoder(x)
-        stack_rnn = StackRNN(d_model, hidden_size, True, 'lstm', True, num_layers, stack_width, stack_depth,
+        stack_rnn = StackRNN(d_model, hidden_size, False, 'lstm', num_layers, stack_width, stack_depth,
                              dropout=0.2, k_mask_func=encoder.k_padding_mask)
         outputs = stack_rnn(x)
         assert len(outputs) > 1
-        linear = StackRNNLinear(4, hidden_size, True)
+        linear = StackRNNLinear(4, hidden_size, bidirectional=False)
         x = linear(outputs)
         print(x.shape)
 
