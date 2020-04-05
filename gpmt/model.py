@@ -378,11 +378,11 @@ class StackRNN(nn.Module):
         self.normalize_x = nn.LayerNorm(hidden_size * self.num_dir)
         self.k_padding_mask_func = k_mask_func
         if has_stack:
-            self.input_size = input_size + stack_width
+            self.input_size = int(input_size + stack_width)
             self.A_linear = nn.Linear(hidden_size, 3)
             self.D_linear = nn.Linear(hidden_size, stack_width)
         else:
-            self.input_size = input_size
+            self.input_size = int(input_size)
         if self.unit_type == 'lstm':
             self.rnn = nn.LSTM(self.input_size, self.hidden_size, self.num_layers,
                                dropout=dropout,
