@@ -60,7 +60,7 @@ class GpmtPretrain(Trainer):
                                        num_layers=hparams['num_layers'],
                                        stack_width=hparams['stack_width'],
                                        stack_depth=hparams['stack_depth'],
-                                       dropout=hparams['dropout'],
+                                       dropout=0.0,
                                        k_mask_func=encoder.k_padding_mask),
                               StackRNNLinear(out_dim=gen_data.n_characters,
                                              hidden_size=hparams['d_model'],
@@ -334,7 +334,7 @@ def main(flags):
             results = trainer.train(model=model,
                                     optimizer=optimizer,
                                     gen_data=gen_data,
-                                    n_iters=500000,
+                                    n_iters=1500000,
                                     sim_data_node=data_node,
                                     tb_writer=summary_writer_creator)
             trainer.save_model(results['model'], flags.model_dir,
@@ -346,18 +346,18 @@ def main(flags):
 
 def default_hparams_bopt(args):
     return {
-        'unit_type': 'lstm',
-        'num_layers': 5,
+        'unit_type': 'gru',
+        'num_layers': 1,
         'dropout': 0.2,
-        'd_model': 64,
-        'stack_width': 64,
-        'stack_depth': 50,
+        'd_model': 1500,
+        'stack_width': 1500,
+        'stack_depth': 200,
         'batch_size': 32,
 
         # optimizer params
-        'optimizer': 'adam',
-        'optimizer__global__weight_decay': 0.0005,
-        'optimizer__global__lr': 0.01,
+        'optimizer': 'adadelta',
+        'optimizer__global__weight_decay': 0.00005,
+        'optimizer__global__lr': 0.001,
     }
 
 
