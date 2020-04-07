@@ -6,14 +6,12 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import math
 import copy
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from gpmt.stackrnn import StackRNNCell
-from gpmt.utils import init_hidden_2d, init_stack_2d, init_hidden, init_cell, init_stack
 
 
 def clone(module, N):
@@ -42,7 +40,7 @@ class Encoder(nn.Module):
     def embeddings_weight(self):
         return self.embedding.weight
 
-    def forward(self, x):
+    def forward(self, inp):
         """
         Retrieve embeddings for x using the indices.
         :param x: tensor
@@ -50,10 +48,12 @@ class Encoder(nn.Module):
         :return: tensor
             x of shape (sequence length, batch_size, d_model)
         """
+        x = inp[0]
         self.k_mask = x == self.padding_idx
         x = self.dropout(self.embedding(x) * math.sqrt(self.d_model))
         x = x.permute(1, 0, 2)
-        return x
+        inp[0] = x
+        return inp
 
 
 class PositionalEncoding(nn.Module):
@@ -78,7 +78,7 @@ class PositionalEncoding(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         self.register_buffer('pe', pe)
 
-    def forward(self, x):
+    def forward(self, inp):
         """
         Concatenates the positional encodings to the input.
         Assumes x is organized as: (Length, batch size, d_model)
@@ -86,12 +86,14 @@ class PositionalEncoding(nn.Module):
         :return:
             x of shape (Length, batch size, d_model)
         """
+        x = inp[0]
         seq_length, batch_size, _ = x.shape
         x_pe = self.pe[:seq_length, :]
         x_pe = torch.repeat_interleave(x_pe.unsqueeze(1), batch_size, dim=1)
         x = torch.cat([x, x_pe], dim=-1)
         x = self.dropout(torch.relu(self.normalize(self.linear(x))))
-        return x
+        inp[0] = x
+        return inp
 
 
 class NonsatActivation(nn.Module):
@@ -198,11 +200,8 @@ class StackDecoderLayer(nn.Module):
         """
         Performs a forward pass through the stack-augmented Transformer-Decoder.
 
-        :param inp: a tuple of tensors
-            Elements are:
-            [0]: the input (seq. length, batch_size, d_model)
-            [1]: the hidden state of the previous layer containing information about each sample.
-                (batch_size, seq. length, d_hidden)
+        :param x: tensor
+            the input (seq. length, batch_size, d_model)
             [2]: the previous stack. (batch_size, seq. length, stack_depth, stack_width).
         :return: tuple of tensors
             [0]: the transformed input (seq. length, batch_size, d_model)
@@ -265,31 +264,44 @@ class StackDecoderLayer(nn.Module):
         return new_stack
 
 
-class AttentionInitialize(nn.Module):
-    """Prepares the encoded input for propagation through the memory layer(s)."""
-
-    def __init__(self, d_hidden, s_depth, s_width, dvc='cpu'):
-        super(AttentionInitialize, self).__init__()
-        self.d_hidden = d_hidden
-        self.s_depth = s_depth
-        self.s_width = s_width
-        self.dvc = dvc
-
-    def forward(self, x):
-        """
-
-        :param x: tensor
-            Encoded input of shape (Seq. length, batch_size, d_model)
-        :return:
-        """
-        # h0 = init_hidden_2d(x.shape[1], x.shape[0], self.d_hidden, dvc=self.dvc)
-        s0 = init_stack_2d(x.shape[1], x.shape[0], self.s_depth, self.s_width, dvc=self.dvc)
-        return x, s0
+# class AttentionInitialize(nn.Module):
+#     """Prepares the encoded input for propagation through the memory layer(s)."""
+#
+#     def __init__(self, d_hidden, s_depth, s_width, dvc='cpu'):
+#         super(AttentionInitialize, self).__init__()
+#         self.d_hidden = d_hidden
+#         self.s_depth = s_depth
+#         self.s_width = s_width
+#         self.dvc = dvc
+#
+#     def forward(self, x):
+#         """
+#
+#         :param x: tensor
+#             Encoded input of shape (Seq. length, batch_size, d_model)
+#         :return:
+#         """
+#         # h0 = init_hidden_2d(x.shape[1], x.shape[0], self.d_hidden, dvc=self.dvc)
+#         s0 = init_stack_2d(x.shape[1], x.shape[0], self.s_depth, self.s_width, dvc=self.dvc)
+#         return x, s0
 
 
 class AttentionTerminal(nn.Module):
+    def __init__(self, need_stack=False):
+        super(AttentionTerminal, self).__init__()
+        self.need_stack = need_stack
+
     def forward(self, inp):
-        """Prepares the final attention output before applying feeding to classifier."""
+        """
+        Prepares the final attention output before applying feeding to classifier.
+
+        Arguments:
+        ---------
+        :param inp: tuple of (x, stack)
+        :return:
+        """
+        if self.need_stack:
+            return inp
         return inp[0]
 
 
@@ -402,7 +414,7 @@ class StackRNN(nn.Module):
                               bias=bias)
             self.has_cell = False
 
-    def forward(self, x, **kwargs):
+    def forward(self, inp, **kwargs):
         """
         Applies a recurrent cell to the elements of the given input.
 
@@ -417,17 +429,9 @@ class StackRNN(nn.Module):
             [3] c_n (if LSTM units are used) of shape (num_layers * num_directions, batch, hidden_size) contianing the
                 cell state for t=seq_len
         """
+        x, hidden, cell, stack = inp
         batch_size = x.shape[1]
         seq_length = x.shape[0]
-        hidden = init_hidden(num_layers=self.num_layers, batch_size=batch_size, hidden_size=self.hidden_size,
-                             num_dir=self.num_dir, dvc=x.device)
-        if self.has_cell:
-            cell = init_cell(num_layers=self.num_layers, batch_size=batch_size, hidden_size=self.hidden_size,
-                             num_dir=self.num_dir, dvc=x.device)
-        if self.has_stack:
-            stack = init_stack(batch_size, self.stack_width, self.stack_depth, dvc=x.device)
-        else:
-            stack = None
 
         # Iteratively apply stack RNN to all characters in a sequence
         outputs = []
@@ -448,7 +452,8 @@ class StackRNN(nn.Module):
             outputs.append(output)
 
         outputs = torch.cat(outputs)
-        return outputs, hidden
+        outputs = [outputs, hidden, stack]
+        return outputs
 
     def stack_augmentation(self, input_val, prev_stack, controls):
         """
@@ -520,4 +525,5 @@ class StackRNNLinear(nn.Module):
             x = F.linear(x, weights, self.bias_param)
         else:
             x = F.linear(x, weights)
-        return x
+        rnn_input[0] = x
+        return rnn_input

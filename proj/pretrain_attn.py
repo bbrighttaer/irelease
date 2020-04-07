@@ -26,11 +26,11 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
 
 from gpmt.data import GeneratorData
-from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionInitialize, AttentionTerminal, \
+from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionTerminal, \
     NonsatActivation, AttentionOptimizer, LinearOut, LabelSmoothing, get_std_opt
 from gpmt.tboard import TBMeanTracker
-from gpmt.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count
-
+from gpmt.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count, init_stack_2d, \
+    time_since, generate_smiles
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -67,7 +67,7 @@ class GpmtPretrain(Trainer):
                                   d_ff=hparams['d_ff'],
                                   dropout=hparams['dropout'],
                                   k_mask_func=encoder.k_padding_mask,
-                                  use_memory=True)
+                                  use_memory=hparams['has_stack'])
             )
 
         # Create classifier layers (post-attention layers)
@@ -86,10 +86,10 @@ class GpmtPretrain(Trainer):
         model = nn.Sequential(encoder,
                               PositionalEncoding(d_model=hparams['d_model'],
                                                  dropout=hparams['dropout']),
-                              AttentionInitialize(d_hidden=hparams['d_model'],
-                                                  s_width=hparams['stack_width'],
-                                                  s_depth=hparams['stack_depth'],
-                                                  dvc=f'{device}:{dvc_id}'),
+                              # AttentionInitialize(d_hidden=hparams['d_model'],
+                              #                     s_width=hparams['stack_width'],
+                              #                     s_depth=hparams['stack_depth'],
+                              #                     dvc=f'{device}:{dvc_id}'),
                               *attn_layers,
                               AttentionTerminal(),
                               *classifier_layers)
@@ -102,8 +102,11 @@ class GpmtPretrain(Trainer):
         #                                factor=2,
         #                                warmup=4000,
         #                                optimizer=parse_optimizer(hparams, model))
-
-        return model, optimizer, gen_data
+        init_args = {'stack_width': hparams['stack_width'],
+                     'stack_depth': hparams['stack_depth'],
+                     'device': f'{device}:{dvc_id}',
+                     'has_stack': hparams['has_stack']}
+        return model, optimizer, gen_data, init_args
 
     @staticmethod
     def data_provider(k, flags):
@@ -128,8 +131,8 @@ class GpmtPretrain(Trainer):
         return acc
 
     @staticmethod
-    def train(model, optimizer, gen_data, n_iters=5000, sim_data_node=None, epoch_ckpt=(2, 1.0), tb_writer=None,
-              is_hsearch=False):
+    def train(model, optimizer, gen_data, init_args, n_iters=5000, sim_data_node=None, epoch_ckpt=(2, 4.0),
+              tb_writer=None, is_hsearch=False):
         tb_writer = None  # tb_writer()
         start = time.time()
         best_model_wts = model.state_dict()
@@ -193,7 +196,10 @@ class GpmtPretrain(Trainer):
                             # track history if only in train
                             with torch.set_grad_enabled(phase == "train"):
                                 # forward propagation
-                                predictions = model(inputs)
+                                stack = init_stack_2d(inputs.shape[0], inputs.shape[1], init_args['stack_depth'],
+                                                      init_args['stack_width'],
+                                                      dvc=init_args['device'])
+                                predictions = model([inputs, stack])
                                 predictions = predictions.permute(1, 0, -1)
                                 predictions = predictions.contiguous().view(-1, predictions.shape[-1])
                                 labels = labels.contiguous().view(-1)
@@ -228,11 +234,20 @@ class GpmtPretrain(Trainer):
                                 train_scores_lst.append(score)
                                 loss_lst.append(loss.item())
 
-                                print("\tEpoch={}/{}, batch={}/{}, "
-                                      "pred_loss={:.4f}, accuracy: {:.2f}".format(epoch + 1, n_epochs,
-                                                                                  b + 1,
-                                                                                  num_batches,
-                                                                                  loss.item(), eval_dict['accuracy']))
+                                print("\t{}: Epoch={}/{}, batch={}/{}, "
+                                      "pred_loss={:.4f}, accuracy: {:.2f}, sample: {}".format(time_since(start),
+                                                                                              epoch + 1, n_epochs,
+                                                                                              b + 1,
+                                                                                              num_batches,
+                                                                                              loss.item(),
+                                                                                              eval_dict['accuracy'],
+                                                                                              generate_smiles(
+                                                                                                  generator=model,
+                                                                                                  gen_data=gen_data,
+                                                                                                  init_args=init_args,
+                                                                                                  num_samples=1,
+                                                                                              gen_type='trans')
+                                                                                              ))
                             else:
                                 # for epoch stats
                                 epoch_scores.append(score)
@@ -264,7 +279,7 @@ class GpmtPretrain(Trainer):
                             best_score = mean_score
                             best_model_wts = copy.deepcopy(model.state_dict())
                             best_epoch = epoch
-        except RuntimeError as e:
+        except ValueError as e:
             print(str(e))
 
         duration = time.time() - start
@@ -283,7 +298,7 @@ class GpmtPretrain(Trainer):
     def save_model(model, path, name):
         os.makedirs(path, exist_ok=True)
         file = os.path.join(path, name + ".mod")
-        # torch.save(model.state_dict(), file)
+        torch.save(model.state_dict(), file)
 
     @staticmethod
     def load_model(path, name):
@@ -361,11 +376,13 @@ def main(flags):
             print("Best params = {}".format(stats.best()))
         else:
             hyper_params = default_hparams_bopt(flags)
-            model, optimizer, gen_data = trainer.initialize(hyper_params,
-                                                            gen_data=trainer.data_provider(k, flags)['train'])
+            model, optimizer, gen_data, init_args = trainer.initialize(hyper_params,
+                                                                       gen_data=trainer.data_provider(k, flags)[
+                                                                           'train'])
             results = trainer.train(model=model,
                                     optimizer=optimizer,
                                     gen_data=gen_data,
+                                    init_args=init_args,
                                     n_iters=500000,
                                     sim_data_node=data_node,
                                     tb_writer=summary_writer_creator)
@@ -387,6 +404,7 @@ def default_hparams_bopt(args):
         'stack_depth': 200,
         'd_ff': 2048,
         'batch_size': 32,
+        'has_stack': True,
 
         # optimizer params
         'optimizer': 'adam',

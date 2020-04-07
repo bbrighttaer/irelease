@@ -393,9 +393,6 @@ def parse_optimizer(hparams, model):
         "adadelta": torch.optim.Adadelta,
         "adagrad": torch.optim.Adagrad,
         "adam": torch.optim.Adam,
-        "adamax": torch.optim.Adamax,
-        "asgd": torch.optim.ASGD,
-        "rmsprop": torch.optim.RMSprop,
         "Rprop": torch.optim.Rprop,
         "sgd": torch.optim.SGD,
     }.get(hparams["optimizer"].lower(), None)
@@ -465,7 +462,8 @@ class GradStats(object):
         return "Grads stats (w={}): L2={}, max={}, var={}".format(int(self._window), self.l2, self.max, self.var)
 
 
-def generate_smiles(generator, gen_data, start_char='<', end_token='>', max_len=100, num_samples=5):
+def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>', max_len=100, num_samples=5,
+                    gen_type='rnn', is_train=True):
     """
     Generates SMILES strings using the model/generator given.
 
@@ -475,7 +473,9 @@ def generate_smiles(generator, gen_data, start_char='<', end_token='>', max_len=
         The model for generating SMILES.
     :param gen_data:
         Object of ::class::data.GeneratorData.
-    :param start_char: str
+    :param init_args: dict
+        Arguments for facilitating the creation of initial states.
+    :param prime_str: str
         Character for indicating the beginning of a SMILES string.
     :param end_token: str
         Character for indicating the end of a SMILES string.
@@ -484,9 +484,92 @@ def generate_smiles(generator, gen_data, start_char='<', end_token='>', max_len=
     :param num_samples: int
         The number of samples to be generated. Notice that the number of SMILES returned may be lesser than this
         number since the sampled strings are filtered for validity.
-    :return:
+    :param gen_type: str
+        rnn or trans
+    :param is_train: bool
+        Whether the call is from a training procedure. If it is then the generator would be set back to train after
+        generation.
+    :return: list
+        Generated string(s).
     """
-    pass
+    generator.eval()
+    if gen_type == 'rnn':
+        hidden = init_hidden(num_layers=init_args['num_layers'], batch_size=num_samples,
+                             hidden_size=init_args['hidden_size'],
+                             num_dir=init_args['num_dir'], dvc=init_args['device'])
+        if init_args['has_cell']:
+            cell = init_cell(num_layers=init_args['num_layers'], batch_size=num_samples,
+                             hidden_size=init_args['hidden_size'],
+                             num_dir=init_args['num_dir'], dvc=init_args['device'])
+        else:
+            cell = None
+        if init_args['has_stack']:
+            stack = init_stack(num_samples, init_args['stack_width'], init_args['stack_depth'],
+                               dvc=init_args['device'])
+        else:
+            stack = None
+
+    prime_input, _ = gen_data.seq2tensor([prime_str] * num_samples, tokens=gen_data.all_characters, flip=False)
+    prime_input = torch.from_numpy(prime_input).long().to(init_args['device'])
+    new_samples = [[prime_str] * num_samples]
+
+    # Use priming string to initialize hidden state
+    if gen_type == 'rnn':
+        for p in range(len(prime_str[0])):
+            x_ = prime_input[:, p]
+            if x_.ndim == 1:
+                x_ = x_.view(-1, 1)
+            _, hidden, stack = generator([x_, hidden, cell, stack])
+            if init_args['has_cell']:
+                hidden, cell = hidden
+    inp = prime_input[:, -1]
+    if inp.ndim == 1:
+        inp = inp.view(-1, 1)
+
+    try:
+        # Start sampling
+        for i in range(max_len - 1):
+            if gen_type == 'rnn':
+                output, hidden, stack = generator([inp, hidden, cell, stack])
+                output = output.detach().cpu()
+                if init_args['has_cell']:
+                    hidden, cell = hidden
+            elif gen_type == 'trans':
+                stack = init_stack_2d(num_samples, inp.shape[-1], init_args['stack_depth'],
+                                      init_args['stack_width'],
+                                      dvc=init_args['device'])
+                output = generator([inp, stack])[-1, :, :]
+                output = output.detach().cpu()
+
+            # Sample the next character from the generator
+            probs = torch.softmax(output.view(-1, output.shape[-1]), dim=-1).detach()
+            top_i = torch.multinomial(probs, 1).cpu().numpy()
+
+            # Add predicated character to string and use as next input.
+            predicted_char = (np.array(gen_data.all_characters)[top_i].reshape(-1))
+            predicted_char = predicted_char.tolist()
+            new_samples.append(predicted_char)
+
+            # Prepare next input token for the generator
+            if gen_type == 'trans':
+                predicted_char = np.array(new_samples).transpose()
+            inp, _ = gen_data.seq2tensor(predicted_char, tokens=gen_data.all_characters)
+            inp = torch.from_numpy(inp).long().to(init_args['device'])
+    except:
+        print('SMILES generation error')
+
+    if is_train:
+        generator.train()
+
+    # Remove characters after end tokens
+    string_samples = []
+    new_samples = np.array(new_samples)
+    for i in range(num_samples):
+        sample = list(new_samples[:, i])
+        if end_token in sample:
+            end_token_idx = sample.index(end_token)
+            string_samples.append(''.join(sample[1:end_token_idx]))
+    return string_samples
 
 
 class ExpAverage(object):
