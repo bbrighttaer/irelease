@@ -465,6 +465,30 @@ class GradStats(object):
         return "Grads stats (w={}): L2={}, max={}, var={}".format(int(self._window), self.l2, self.max, self.var)
 
 
+def generate_smiles(generator, gen_data, start_char='<', end_token='>', max_len=100, num_samples=5):
+    """
+    Generates SMILES strings using the model/generator given.
+
+    Arguments:
+    ------------
+    :param generator: nn.Module
+        The model for generating SMILES.
+    :param gen_data:
+        Object of ::class::data.GeneratorData.
+    :param start_char: str
+        Character for indicating the beginning of a SMILES string.
+    :param end_token: str
+        Character for indicating the end of a SMILES string.
+    :param max_len: int
+        The maximum length of a generated string.
+    :param num_samples: int
+        The number of samples to be generated. Notice that the number of SMILES returned may be lesser than this
+        number since the sampled strings are filtered for validity.
+    :return:
+    """
+    pass
+
+
 class ExpAverage(object):
     def __init__(self, beta, bias_cor=False):
         self.beta = beta

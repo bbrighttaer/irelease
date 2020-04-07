@@ -145,6 +145,20 @@ class SublayerConnection(nn.Module):
         return x
 
 
+class SublayerConnectionQKV(nn.Module):
+    def __init__(self, d_model, dropout):
+        super(SublayerConnectionQKV, self).__init__()
+        self.norm_kv = nn.LayerNorm(d_model)
+        self.norm_q = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, q, kv, sublayer):
+        q = self.norm_q(q)
+        k = v = self.norm_kv(kv)
+        x = v + self.dropout(sublayer((q, k, v)))
+        return x
+
+
 class PositionwiseFeedForward(nn.Module):
     def __init__(self, d_model, d_ff, dropout):
         super(PositionwiseFeedForward, self).__init__()
@@ -159,30 +173,26 @@ class PositionwiseFeedForward(nn.Module):
 
 class StackDecoderLayer(nn.Module):
 
-    def __init__(self, d_model, num_heads, d_hidden, stack_depth, stack_width, k_mask_func, d_ff=2048, d_ss=128,
-                 dropout=0., use_memory=True):
+    def __init__(self, d_model, num_heads, stack_depth, stack_width, k_mask_func, d_ff=2048, dropout=0.,
+                 use_memory=True):
         super(StackDecoderLayer, self).__init__()
         assert callable(k_mask_func), 'k_mask_func argument should be a method of the ' \
                                       'Encoder that provides the key padding mask.'
         self.use_memory = use_memory
-        self.d_hidden = d_hidden
+        self.d_hidden = d_model
         self.stack_depth = stack_depth
         self.stack_width = stack_width
         self.k_padding_mask_func = k_mask_func
-        self.multihead_attention = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, dropout=dropout)
+        self.multihead_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout)
         self.feedforwad = PositionwiseFeedForward(d_model, d_ff, dropout)
-        self.subalyers = nn.ModuleList([SublayerConnection(d_model, dropout),
-                                        SublayerConnection(d_model, dropout)])
+        self.subalyers = nn.ModuleList([SublayerConnectionQKV(d_model, dropout), SublayerConnection(d_model, dropout)])
 
         # stack & hidden state elements
-        self.nonlinearity = NonsatActivation()
-        self.W = nn.Linear(d_model, d_hidden)
-        # self.R = nn.Linear(d_hidden, d_hidden)
-        self.P = nn.Linear(stack_width, d_hidden)
-        self.V = nn.Linear(d_model + d_hidden, d_ss, bias=False)
-        self.U = nn.Linear(d_ss, d_model, bias=False)
+        self.nonlinearity = nn.ReLU()  # NonsatActivation()
+        self.W = nn.Linear(d_model, self.d_hidden)
+        self.P = nn.Linear(stack_width, self.d_hidden)
         self.A = nn.Linear(self.d_hidden, 3)
-        self.D = nn.Linear(d_hidden, stack_width)
+        self.D = nn.Linear(self.d_hidden, stack_width)
 
     def forward(self, inp):
         """
@@ -205,30 +215,26 @@ class StackDecoderLayer(nn.Module):
         mask = _create_attn_mask(seq_length, x_in.device)
         k_mask = self.k_padding_mask_func()
 
-        # masked multihead self-attention
-        x = self.subalyers[0](x_in, lambda x: self.multihead_attention(x, x, x, key_padding_mask=k_mask,
-                                                                       attn_mask=mask, need_weights=False)[0])
-
         stack = stack_prev
         if self.use_memory:
             # hidden state ops
             stack_x = stack_prev[:, :, 0, :].view(batch_size, seq_length, -1)
-            hidden = self.W(x.permute(1, 0, 2)) + self.P(stack_x)
+            hidden = self.W(x_in.permute(1, 0, 2)) + self.P(stack_x)
             hidden = self.nonlinearity(hidden)
 
-            # stack ops
-            vx = torch.cat([x, hidden.permute(1, 0, 2)], dim=-1)
-            y = self.U(torch.softmax(self.V(vx), dim=-1))
-
-            # pooling
-            x = torch.stack([x, y])
-            x = torch.max(x, dim=0)[0]
-
             # stack update
-            stack_inp = self.nonlinearity(self.D(hidden)).unsqueeze(2)
+            stack_inp = torch.tanh(self.D(hidden)).unsqueeze(2)
             stack_controls = torch.softmax(self.A(hidden), dim=-1)
             stack = self.stack_augmentation(stack_inp, stack_prev, stack_controls)
 
+            q = x_in + hidden.permute(1, 0, 2)
+        else:
+            q = x_in
+
+        kv = x_in
+        # masked multihead self-attention
+        x = self.subalyers[0](q, kv, lambda w: self.multihead_attention(*w, key_padding_mask=k_mask,
+                                                                        attn_mask=mask, need_weights=False)[0])
         # FFN module
         x = self.subalyers[1](x, self.feedforwad)
         return x, stack
@@ -276,8 +282,8 @@ class AttentionInitialize(nn.Module):
             Encoded input of shape (Seq. length, batch_size, d_model)
         :return:
         """
-        # h0 = init_hidden(x.shape[1], x.shape[0], self.d_hidden, dvc=self.dvc)
-        s0 = init_stack(x.shape[1], x.shape[0], self.s_depth, self.s_width, dvc=self.dvc)
+        # h0 = init_hidden_2d(x.shape[1], x.shape[0], self.d_hidden, dvc=self.dvc)
+        s0 = init_stack_2d(x.shape[1], x.shape[0], self.s_depth, self.s_width, dvc=self.dvc)
         return x, s0
 
 

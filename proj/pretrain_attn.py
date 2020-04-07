@@ -23,7 +23,7 @@ from soek import CategoricalParam, LogRealParam, ConstantParam, RealParam, Discr
 from soek.bopt import GPMinArgs, GBRTMinArgs
 from soek.template import Trainer
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from gpmt.data import GeneratorData
 from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionInitialize, AttentionTerminal, \
@@ -38,7 +38,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 3
     use_cuda = True
     device = 'cuda'
     torch.cuda.set_device(dvc_id)
@@ -62,11 +62,9 @@ class GpmtPretrain(Trainer):
             attn_layers.append(
                 StackDecoderLayer(d_model=hparams['d_model'],
                                   num_heads=hparams['attn_heads'],
-                                  d_hidden=hparams['d_hidden'],
                                   stack_depth=hparams['stack_depth'],
                                   stack_width=hparams['stack_width'],
                                   d_ff=hparams['d_ff'],
-                                  d_ss=hparams['d_ss'],
                                   dropout=hparams['dropout'],
                                   k_mask_func=encoder.k_padding_mask,
                                   use_memory=True)
@@ -88,7 +86,7 @@ class GpmtPretrain(Trainer):
         model = nn.Sequential(encoder,
                               PositionalEncoding(d_model=hparams['d_model'],
                                                  dropout=hparams['dropout']),
-                              AttentionInitialize(d_hidden=hparams['d_hidden'],
+                              AttentionInitialize(d_hidden=hparams['d_model'],
                                                   s_width=hparams['stack_width'],
                                                   s_depth=hparams['stack_depth'],
                                                   dvc=f'{device}:{dvc_id}'),
@@ -187,7 +185,7 @@ class GpmtPretrain(Trainer):
                     # Iterate through mini-batches
                     # with TBMeanTracker(tb_writer, 10) as tracker:
                     with grad_stats:
-                        for b in tqdm(range(num_batches)):
+                        for b in trange(0, num_batches, desc=f'{phase} in progress...'):
                             inputs, labels = gen_data.random_training_set()
 
                             optimizer.zero_grad()
@@ -380,16 +378,14 @@ def main(flags):
 
 def default_hparams_bopt(args):
     return {
-        'attn_heads': 8,
+        'attn_heads': 4,
         'attn_layers': 3,
-        'lin_dims': [1024, 256],
+        'lin_dims': [1024],
         'dropout': 0.2,
-        'd_model': 128,
-        'd_hidden': 128,
-        'stack_width': 64,
-        'stack_depth': 100,
+        'd_model': 256,
+        'stack_width': 256,
+        'stack_depth': 200,
         'd_ff': 2048,
-        "d_ss": 512,
         'batch_size': 32,
 
         # optimizer params
