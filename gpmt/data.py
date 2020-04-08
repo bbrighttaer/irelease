@@ -67,7 +67,7 @@ class GeneratorData(object):
                 self.file.append(self.start_token + data[i] + self.end_token)
         self.file_len = len(self.file)
         self.all_characters, self.char2idx, \
-        self.n_characters = tokenize(self.file, pad_symbol, tokens, self.tokens_reload)
+        self.n_characters = tokenize(self.file, tokens)
         self.pad_symbol_idx = self.all_characters.index(self.pad_symbol)
         self.use_cuda = use_cuda
         if self.use_cuda is None:

@@ -187,7 +187,7 @@ class StackDecoderLayer(nn.Module):
         self.k_padding_mask_func = k_mask_func
         self.multihead_attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout)
         self.feedforwad = PositionwiseFeedForward(d_model, d_ff, dropout)
-        self.subalyers = nn.ModuleList([SublayerConnectionQKV(d_model, dropout), SublayerConnection(d_model, dropout)])
+        self.subalyers = nn.ModuleList([SublayerConnection(d_model, dropout), SublayerConnection(d_model, dropout)])
 
         # stack & hidden state elements
         self.nonlinearity = nn.ReLU()  # NonsatActivation()
@@ -226,14 +226,11 @@ class StackDecoderLayer(nn.Module):
             stack_controls = torch.softmax(self.A(hidden), dim=-1)
             stack = self.stack_augmentation(stack_inp, stack_prev, stack_controls)
 
-            q = x_in + hidden.permute(1, 0, 2)
-        else:
-            q = x_in
+            x_in = x_in + hidden.permute(1, 0, 2)
 
-        kv = x_in
         # masked multihead self-attention
-        x = self.subalyers[0](q, kv, lambda w: self.multihead_attention(*w, key_padding_mask=k_mask,
-                                                                        attn_mask=mask, need_weights=False)[0])
+        x = self.subalyers[0](x_in, lambda w: self.multihead_attention(w, w, w, key_padding_mask=k_mask,
+                                                                       attn_mask=mask, need_weights=False)[0])
         # FFN module
         x = self.subalyers[1](x, self.feedforwad)
         return x, stack
@@ -439,14 +436,21 @@ class StackRNN(nn.Module):
             hidden = (hidden, cell)
         for c in range(seq_length):
             if self.has_stack:
-                stack_top = stack[:, 0, :]
-                x_ = torch.cat([x[c, :, :], stack_top], dim=-1).unsqueeze(0)
-                output, hidden = self.rnn(x_, hidden)
-
                 # Stack update
-                controls = torch.softmax(self.A_linear(output.view(batch_size, -1)), dim=-1)
-                stack_input = torch.tanh(self.D_linear(output.view(batch_size, -1)))
+                if self.has_cell:
+                    hidden_2_stack = hidden[0]
+                else:
+                    hidden_2_stack = hidden
+                hidden_2_stack = hidden_2_stack.view(batch_size, hidden_2_stack.shape[-1])
+                controls = torch.softmax(self.A_linear(hidden_2_stack), dim=-1)
+                stack_input = torch.tanh(self.D_linear(hidden_2_stack))
                 stack = self.stack_augmentation(stack_input, stack, controls)
+
+                # rnn
+                stack_top = stack[:, 0, :].unsqueeze(0)
+                x_ = x[c, :, :].unsqueeze(0)
+                x_ = torch.cat([x_, stack_top], dim=-1)
+                output, hidden = self.rnn(x_, hidden)
             else:
                 output, hidden = self.rnn(x, hidden)
             outputs.append(output)
@@ -501,11 +505,12 @@ class StackRNNLinear(nn.Module):
         else:
             num_dir = 1
         in_dim = hidden_size * num_dir
-        self.linear_res = nn.Linear(in_dim, in_dim)
-        if self.bias:
-            self.bias_param = nn.Parameter(torch.zeros(out_dim))
-        self.encoder = encoder
-        self.sublayer = SublayerConnection(in_dim, dropout)
+        self.decoder = nn.Linear(in_dim, out_dim)
+        # self.linear_res = nn.Linear(in_dim, in_dim)
+        # if self.bias:
+        #     self.bias_param = nn.Parameter(torch.zeros(out_dim))
+        # self.encoder = encoder
+        # self.sublayer = SublayerConnection(in_dim, dropout)
 
     def forward(self, rnn_input):
         """
@@ -519,11 +524,11 @@ class StackRNNLinear(nn.Module):
             Shape: (seq_len, batch_size, out_dim)
         """
         x = rnn_input[0]
-        x = self.sublayer(x, self.linear_res)
-        weights = self.encoder.embeddings_weight()
-        if self.bias:
-            x = F.linear(x, weights, self.bias_param)
-        else:
-            x = F.linear(x, weights)
-        rnn_input[0] = x
+        # x = self.sublayer(x, self.linear_res)
+        # weights = self.encoder.embeddings_weight()
+        # if self.bias:
+        #     x = F.linear(x, weights, self.bias_param)
+        # else:
+        #     x = F.linear(x, weights)
+        rnn_input[0] = self.decoder(x)
         return rnn_input

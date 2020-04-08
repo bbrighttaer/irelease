@@ -215,7 +215,54 @@ def read_smi_file(filename, unique=True, add_start_end_tokens=False):
     return molecules, f.closed
 
 
-def tokenize(smiles, pad_symbol, tokens=None, tokens_reload=False):
+# def tokenize(smiles, pad_symbol, tokens=None, tokens_reload=False):
+#     """
+#     Returns list of unique tokens, token-2-index dictionary and number of
+#     unique tokens from the list of SMILES
+#
+#     Parameters
+#     ----------
+#         smiles: list
+#             list of SMILES strings to tokenize.
+#
+#         tokens: list, str (default None)
+#             list of unique tokens
+#         tokens_reload: bool
+#             Whether the resulting tokens dict should be pickled and loaded for subsequent runs.
+#
+#     Returns
+#     -------
+#         tokens: list
+#             list of unique tokens/SMILES alphabet.
+#
+#         token2idx: dict
+#             dictionary mapping token to its index.
+#
+#         num_tokens: int
+#             number of unique tokens.
+#     """
+#     check_reload = False
+#     if tokens is None:
+#         if tokens_reload and os.path.exists('token2idx.pkl'):
+#             with open('token2idx.pkl', 'rb') as f:
+#                 token2idx = pickle.load(f)
+#                 tokens = list(token2idx.keys())
+#                 num_tokens = len(tokens)
+#                 return tokens, token2idx, num_tokens
+#         tokens = list(set(''.join(smiles)))
+#         tokens = list(np.sort(tokens))
+#         tokens = ''.join(tokens)
+#         check_reload = True
+#     token2idx = dict((token, i) for i, token in enumerate(tokens))
+#     token2idx[pad_symbol] = len(token2idx)
+#     tokens += pad_symbol
+#     num_tokens = len(tokens)
+#     if check_reload and tokens_reload:
+#         with open('token2idx.pkl', 'wb') as f:
+#             pickle.dump(dict(token2idx), f)
+#     return tokens, token2idx, num_tokens
+
+def tokenize(smiles, tokens=None):
     """
     Returns list of unique tokens, token-2-index dictionary and number of
     unique tokens from the list of SMILES
@@ -227,8 +274,6 @@ def tokenize(smiles, pad_symbol, tokens=None, tokens_reload=False):
 
         tokens: list, str (default None)
             list of unique tokens
-        tokens_reload: bool
-            Whether the resulting tokens dict should be pickled and loaded for subsequent runs.
 
     Returns
     -------
@@ -241,27 +286,13 @@ def tokenize(smiles, pad_symbol, tokens=None, tokens_reload=False):
         num_tokens: int
             number of unique tokens.
     """
-    check_reload = False
     if tokens is None:
-        if tokens_reload and os.path.exists('token2idx.pkl'):
-            with open('token2idx.pkl', 'rb') as f:
-                token2idx = pickle.load(f)
-                tokens = list(token2idx.keys())
-                num_tokens = len(tokens)
-                return tokens, token2idx, num_tokens
         tokens = list(set(''.join(smiles)))
         tokens = list(np.sort(tokens))
         tokens = ''.join(tokens)
-        check_reload = True
     token2idx = dict((token, i) for i, token in enumerate(tokens))
-    token2idx[pad_symbol] = len(token2idx)
-    tokens += pad_symbol
     num_tokens = len(tokens)
-    if check_reload and tokens_reload:
-        with open('token2idx.pkl', 'wb') as f:
-            pickle.dump(dict(token2idx), f)
     return tokens, token2idx, num_tokens
-
 
 def time_since(since):
     s = time.time() - since
@@ -515,7 +546,7 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
 
     # Use priming string to initialize hidden state
     if gen_type == 'rnn':
-        for p in range(len(prime_str[0])):
+        for p in range(len(prime_str[0])-1):
             x_ = prime_input[:, p]
             if x_.ndim == 1:
                 x_ = x_.view(-1, 1)

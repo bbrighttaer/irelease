@@ -85,15 +85,17 @@ class GpmtPretrain(Trainer):
 
     @staticmethod
     def data_provider(k, flags):
+        tokens = [' ', '<', '>', '#', '%', ')', '(', '+', '-', '/', '.', '1', '0', '3', '2', '5', '4', '7',
+                  '6', '9', '8', '=', 'A', '@', 'C', 'B', 'F', 'I', 'H', 'O', 'N', 'P', 'S', '[', ']',
+                  '\\', 'c', 'e', 'i', 'l', 'o', 'n', 'p', 's', 'r', '\n']
         gen_data = GeneratorData(training_data_path=flags.data_file,
                                  delimiter='\t',
                                  cols_to_read=[0],
                                  keep_header=True,
                                  pad_symbol=' ',
-                                 max_len=1000,
-                                 tokens=None,
-                                 use_cuda=use_cuda,
-                                 tokens_reload=True)
+                                 max_len=120,
+                                 tokens=tokens,
+                                 use_cuda=use_cuda)
         return {"train": gen_data, "val": gen_data, "test": gen_data}
 
     @staticmethod
@@ -382,11 +384,11 @@ def default_hparams_bopt(args):
     return {
         'unit_type': 'gru',
         'num_layers': 1,
-        'dropout': 0.2,
+        'dropout': 0.1,
         'd_model': 1500,
         'stack_width': 1500,
         'stack_depth': 200,
-        'batch_size': 32,
+        'batch_size': 1,
 
         # optimizer params
         'optimizer': 'adadelta',

@@ -110,15 +110,17 @@ class GpmtPretrain(Trainer):
 
     @staticmethod
     def data_provider(k, flags):
+        tokens = [' ', '<', '>', '#', '%', ')', '(', '+', '-', '/', '.', '1', '0', '3', '2', '5', '4', '7',
+                  '6', '9', '8', '=', 'A', '@', 'C', 'B', 'F', 'I', 'H', 'O', 'N', 'P', 'S', '[', ']',
+                  '\\', 'c', 'e', 'i', 'l', 'o', 'n', 'p', 's', 'r', '\n']
         gen_data = GeneratorData(training_data_path=flags.data_file,
                                  delimiter='\t',
                                  cols_to_read=[0],
                                  keep_header=True,
                                  pad_symbol=' ',
                                  max_len=1000,
-                                 tokens=None,
                                  use_cuda=use_cuda,
-                                 tokens_reload=True)
+                                 tokens=tokens)
         return {"train": gen_data, "val": gen_data, "test": gen_data}
 
     @staticmethod
@@ -383,7 +385,7 @@ def main(flags):
                                     optimizer=optimizer,
                                     gen_data=gen_data,
                                     init_args=init_args,
-                                    n_iters=500000,
+                                    n_iters=1500000,
                                     sim_data_node=data_node,
                                     tb_writer=summary_writer_creator)
             trainer.save_model(results['model'], flags.model_dir,
@@ -395,15 +397,15 @@ def main(flags):
 
 def default_hparams_bopt(args):
     return {
-        'attn_heads': 4,
-        'attn_layers': 3,
-        'lin_dims': [1024],
-        'dropout': 0.2,
+        'attn_heads': 2,
+        'attn_layers': 6,
+        'lin_dims': [512],
+        'dropout': 0.1,
         'd_model': 256,
         'stack_width': 256,
-        'stack_depth': 200,
+        'stack_depth': 20,
         'd_ff': 2048,
-        'batch_size': 32,
+        'batch_size': 1,
         'has_stack': True,
 
         # optimizer params
