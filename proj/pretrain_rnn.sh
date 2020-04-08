@@ -1,0 +1,1 @@
+python pretrain_rnn.py --data ../data/chembl.smi

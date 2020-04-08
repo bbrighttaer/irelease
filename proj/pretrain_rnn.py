@@ -147,7 +147,7 @@ class GpmtPretrain(Trainer):
                 if terminate_training:
                     print("Terminating training...")
                     break
-                for phase in ["train", "val" if is_hsearch else "test"]:
+                for phase in ["train"]:  # , "val" if is_hsearch else "test"]:
                     if phase == "train":
                         print("Training....")
                         # Training mode
@@ -265,7 +265,7 @@ class GpmtPretrain(Trainer):
                             best_score = mean_score
                             best_model_wts = copy.deepcopy(model.state_dict())
                             best_epoch = epoch
-        except ValueError as e:
+        except RuntimeError as e:
             print(str(e))
 
         duration = time.time() - start
@@ -284,7 +284,7 @@ class GpmtPretrain(Trainer):
     def save_model(model, path, name):
         os.makedirs(path, exist_ok=True)
         file = os.path.join(path, name + ".mod")
-        # torch.save(model.state_dict(), file)
+        torch.save(model.state_dict(), file)
 
     @staticmethod
     def load_model(path, name):
@@ -295,7 +295,7 @@ class GpmtPretrain(Trainer):
 
 
 def main(flags):
-    sim_label = 'GPMT-pretraining-memory'
+    sim_label = 'GPMT-pretraining-Stack-RNN'
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -372,7 +372,7 @@ def main(flags):
                                     sim_data_node=data_node,
                                     tb_writer=summary_writer_creator)
             trainer.save_model(results['model'], flags.model_dir,
-                               name=f'gpmt-pretrained_{date_label}_{results["score"]}_{results["epoch"]}')
+                               name=f'gpmt-pretrained_stack-rnn_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")

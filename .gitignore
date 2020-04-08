@@ -51,7 +51,8 @@ ipython_config.py
 # .idea/modules
 # *.iml
 # *.ipr
-
+*.mod
+./model_dir/
 # CMake
 cmake-build-*/
 

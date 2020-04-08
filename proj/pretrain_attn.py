@@ -172,7 +172,7 @@ class GpmtPretrain(Trainer):
                 if terminate_training:
                     print("Terminating training...")
                     break
-                for phase in ["train", "val" if is_hsearch else "test"]:
+                for phase in ["train"]:  # , "val" if is_hsearch else "test"]:
                     if phase == "train":
                         print("Training....")
                         # Training mode
@@ -246,7 +246,7 @@ class GpmtPretrain(Trainer):
                                                                                                   gen_data=gen_data,
                                                                                                   init_args=init_args,
                                                                                                   num_samples=1,
-                                                                                              gen_type='trans')
+                                                                                                  gen_type='trans')
                                                                                               ))
                             else:
                                 # for epoch stats
@@ -279,7 +279,7 @@ class GpmtPretrain(Trainer):
                             best_score = mean_score
                             best_model_wts = copy.deepcopy(model.state_dict())
                             best_epoch = epoch
-        except ValueError as e:
+        except RuntimeError as e:
             print(str(e))
 
         duration = time.time() - start
