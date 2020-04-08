@@ -532,3 +532,7 @@ class StackRNNLinear(nn.Module):
         #     x = F.linear(x, weights)
         rnn_input[0] = self.decoder(x)
         return rnn_input
+
+class RewardNetRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, bidirectional=True, dropout=0.):
+        super(RewardNetRNN, self).__init__()

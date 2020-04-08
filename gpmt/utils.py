@@ -294,6 +294,7 @@ def tokenize(smiles, tokens=None):
     num_tokens = len(tokens)
     return tokens, token2idx, num_tokens
 
+
 def time_since(since):
     s = time.time() - since
     m = math.floor(s / 60)
@@ -401,10 +402,9 @@ class Flags(object):
 
 def get_default_tokens():
     """Default SMILES tokens"""
-    tokens = [' ', '<', '>', '#', '%', ')', '(', '+', '-', '/', '.', '1', '0', '3',
-              '2', '5', '4', '7', '6', '9', '8', '=', 'A', '@', 'C', 'B', 'F', 'I',
-              'H', 'O', 'N', 'P', 'S', '[', ']', '\\', 'c', 'e', 'i', 'l', 'o', 'n',
-              'p', 's', 'r', '\n']
+    tokens = [' ', '<', '>', '#', '%', ')', '(', '+', '-', '/', '.', '1', '0', '3', '2', '5', '4', '7',
+              '6', '9', '8', '=', 'A', '@', 'C', 'B', 'F', 'I', 'H', 'O', 'N', 'P', 'S', '[', ']',
+              '\\', 'c', 'e', 'i', 'l', 'o', 'n', 'p', 's', 'r', '\n']
     return tokens
 
 
@@ -546,7 +546,7 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
 
     # Use priming string to initialize hidden state
     if gen_type == 'rnn':
-        for p in range(len(prime_str[0])-1):
+        for p in range(len(prime_str[0]) - 1):
             x_ = prime_input[:, p]
             if x_.ndim == 1:
                 x_ = x_.view(-1, 1)

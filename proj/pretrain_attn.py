@@ -110,9 +110,7 @@ class GpmtPretrain(Trainer):
 
     @staticmethod
     def data_provider(k, flags):
-        tokens = [' ', '<', '>', '#', '%', ')', '(', '+', '-', '/', '.', '1', '0', '3', '2', '5', '4', '7',
-                  '6', '9', '8', '=', 'A', '@', 'C', 'B', 'F', 'I', 'H', 'O', 'N', 'P', 'S', '[', ']',
-                  '\\', 'c', 'e', 'i', 'l', 'o', 'n', 'p', 's', 'r', '\n']
+        tokens = get_default_tokens()
         gen_data = GeneratorData(training_data_path=flags.data_file,
                                  delimiter='\t',
                                  cols_to_read=[0],
@@ -333,7 +331,6 @@ def main(flags):
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-        # load data
         print('---------------------------------------------------')
         print('Running on dataset: %s' % flags.data_file)
         print('---------------------------------------------------')
@@ -377,7 +374,7 @@ def main(flags):
             print(stats)
             print("Best params = {}".format(stats.best()))
         else:
-            hyper_params = default_hparams_bopt(flags)
+            hyper_params = default_hparams(flags)
             model, optimizer, gen_data, init_args = trainer.initialize(hyper_params,
                                                                        gen_data=trainer.data_provider(k, flags)[
                                                                            'train'])
@@ -395,7 +392,7 @@ def main(flags):
     sim_data.to_json(path="./analysis/")
 
 
-def default_hparams_bopt(args):
+def default_hparams(args):
     return {
         'attn_heads': 2,
         'attn_layers': 6,
@@ -455,13 +452,13 @@ if __name__ == '__main__':
                         type=str,
                         default="bayopt_search",
                         help="Hyperparameter search algorithm to use. One of [bayopt_search, random_search]")
-    parser.add_argument("--eval",
-                        action="store_true",
-                        help="If true, a saved model is loaded and evaluated")
-    parser.add_argument("--eval_model_name",
-                        default=None,
-                        type=str,
-                        help="The filename of the model to be loaded from the directory specified in --model_dir")
+    # parser.add_argument("--eval",
+    #                     action="store_true",
+    #                     help="If true, a saved model is loaded and evaluated")
+    # parser.add_argument("--eval_model_name",
+    #                     default=None,
+    #                     type=str,
+    #                     help="The filename of the model to be loaded from the directory specified in --model_dir")
 
     args = parser.parse_args()
     flags = Flags()

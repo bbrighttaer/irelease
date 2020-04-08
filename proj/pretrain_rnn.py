@@ -28,7 +28,7 @@ from tqdm import tqdm, trange
 from gpmt.data import GeneratorData
 from gpmt.model import Encoder, StackRNN, StackRNNLinear
 from gpmt.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, init_hidden, init_cell, init_stack, \
-    generate_smiles, time_since
+    generate_smiles, time_since, get_default_tokens
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -36,7 +36,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 3
     use_cuda = True
     device = 'cuda'
     torch.cuda.set_device(dvc_id)
@@ -85,9 +85,7 @@ class GpmtPretrain(Trainer):
 
     @staticmethod
     def data_provider(k, flags):
-        tokens = [' ', '<', '>', '#', '%', ')', '(', '+', '-', '/', '.', '1', '0', '3', '2', '5', '4', '7',
-                  '6', '9', '8', '=', 'A', '@', 'C', 'B', 'F', 'I', 'H', 'O', 'N', 'P', 'S', '[', ']',
-                  '\\', 'c', 'e', 'i', 'l', 'o', 'n', 'p', 's', 'r', '\n']
+        tokens = get_default_tokens()
         gen_data = GeneratorData(training_data_path=flags.data_file,
                                  delimiter='\t',
                                  cols_to_read=[0],
@@ -290,10 +288,7 @@ class GpmtPretrain(Trainer):
 
     @staticmethod
     def load_model(path, name):
-        # if dvc is None:
-        #     dvc = torch.device("cuda:0")
-        return torch.load(os.path.join(path, name),
-                          map_location=torch.device(device))
+        return torch.load(os.path.join(path, name), map_location=torch.device(f'{device}:{dvc_id}'))
 
 
 def main(flags):
@@ -319,7 +314,6 @@ def main(flags):
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-        # load data
         print('---------------------------------------------------')
         print('Running on dataset: %s' % flags.data_file)
         print('---------------------------------------------------')
@@ -363,7 +357,7 @@ def main(flags):
             print(stats)
             print("Best params = {}".format(stats.best()))
         else:
-            hyper_params = default_hparams_bopt(flags)
+            hyper_params = default_hparams(flags)
             model, optimizer, gen_data, rnn_args = trainer.initialize(hyper_params,
                                                                       gen_data=trainer.data_provider(k, flags)['train'])
             results = trainer.train(model=model,
@@ -380,7 +374,7 @@ def main(flags):
     sim_data.to_json(path="./analysis/")
 
 
-def default_hparams_bopt(args):
+def default_hparams(args):
     return {
         'unit_type': 'gru',
         'num_layers': 1,
@@ -433,13 +427,13 @@ if __name__ == '__main__':
                         type=str,
                         default="bayopt_search",
                         help="Hyperparameter search algorithm to use. One of [bayopt_search, random_search]")
-    parser.add_argument("--eval",
-                        action="store_true",
-                        help="If true, a saved model is loaded and evaluated")
-    parser.add_argument("--eval_model_name",
-                        default=None,
-                        type=str,
-                        help="The filename of the model to be loaded from the directory specified in --model_dir")
+    # parser.add_argument("--eval",
+    #                     action="store_true",
+    #                     help="If true, a saved model is loaded and evaluated")
+    # parser.add_argument("--eval_model_name",
+    #                     default=None,
+    #                     type=str,
+    #                     help="The filename of the model to be loaded from the directory specified in --model_dir")
 
     args = parser.parse_args()
     flags = Flags()
