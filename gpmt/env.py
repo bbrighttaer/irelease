@@ -49,14 +49,6 @@ class MoleculeEnv(gym.Env):
         self.np_random = None
         self.seed(seed)
 
-    @property
-    def state(self):
-        return self._state
-
-    @state.setter
-    def state(self, s):
-        self._state = s
-
     def reset(self):
         self._state = [self.start_char]
         return self._state
@@ -65,14 +57,15 @@ class MoleculeEnv(gym.Env):
         assert isinstance(action, str) and len(action) == 1
         assert self.action_space.contains(action), 'Selected action is out of range.'
         prev_state = copy.deepcopy(self._state)
-        self._state.append(action)
-        use_mc = self._state[-1] != self.end_char
-        reward = self.reward_func(self._state, use_mc)
+        state = self._state + [action]
+        use_mc = action != self.end_char
+        reward = self.reward_func(np.array(state), use_mc)
         if len(self._state) == self.max_len or self._state[-1] == self.end_char:
             done = True
         else:
             done = False
         info = {'prev_state': prev_state}
+        self._state = list(state)
         return np.array(self._state, dtype=np.object), reward, done, info
 
     def render(self, mode='human'):

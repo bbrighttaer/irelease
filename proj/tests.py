@@ -128,9 +128,9 @@ class MyTestCase(unittest.TestCase):
         encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol])
         x = encoder(x)
         stack_rnn_1 = StackRNN(1, d_model, hidden_size, True, 'gru', stack_width, stack_depth,
-                               dropout=0.0, k_mask_func=encoder.k_padding_mask)
+                               k_mask_func=encoder.k_padding_mask)
         stack_rnn_2 = StackRNN(2, hidden_size, hidden_size, True, 'gru', stack_width, stack_depth,
-                               dropout=0.0, k_mask_func=encoder.k_padding_mask)
+                               k_mask_func=encoder.k_padding_mask)
         outputs = stack_rnn_1([x] + hidden_states)
         outputs = stack_rnn_2(outputs)
         assert len(outputs) > 1
@@ -139,20 +139,29 @@ class MyTestCase(unittest.TestCase):
         print(x[0].shape)
 
     def test_mol_env(self):
-        env = MoleculeEnv(gen_data, RewardFunction())
+        d_model = 8
+        hidden_size = 16
+        num_layers = 1
+        encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol], return_tuple=True)
+        rnn = RewardNetRNN(d_model, hidden_size, num_layers, bidirectional=True, unit_type='gru')
+        reward_net = torch.nn.Sequential(encoder, rnn)
+        env = MoleculeEnv(gen_data, RewardFunction(reward_net=reward_net,
+                                                   policy=lambda x: gen_data.all_characters[
+                                                       np.random.randint(gen_data.n_characters)],
+                                                   actions=gen_data.all_characters))
         print(f'sample action: {env.action_space.sample()}')
         print(f'sample observation: {env.observation_space.sample()}')
         s = env.reset()
         for i in range(5):
             env.render()
             action = env.action_space.sample()
+            print(f'action = {action}')
             s_prime, reward, done, info = env.step(action)
             if done:
                 env.reset()
                 break
 
     def test_molecule_mcts(self):
-        x, y = gen_data.random_training_set(batch_size=bz)
         d_model = 8
         hidden_size = 16
         num_layers = 2
@@ -189,35 +198,54 @@ class MyTestCase(unittest.TestCase):
     def test_policy_net(self):
         d_model = 8
         hidden_size = 16
-        num_layers = 2
+        num_layers = 1
         stack_width = 10
         stack_depth = 20
         unit_type = 'lstm'
-        init_func = lambda: get_initial_states(1, hidden_size, num_layers, stack_depth, stack_width, unit_type)
-        encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol],
-                          return_tuple=True)
+
+        # Create a function to provide initial hidden states
+        def hidden_states_func():
+            return [get_initial_states(1, hidden_size, 1, stack_depth, stack_width, unit_type) for _ in
+                    range(num_layers)]
+
+        # Encoder to map character indices to embeddings
+        encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol], return_tuple=True)
+
+        # Reward function model
         rnn = RewardNetRNN(d_model, hidden_size, num_layers, bidirectional=True, unit_type='gru')
         reward_net = torch.nn.Sequential(encoder, rnn)
-        env = MoleculeEnv(gen_data, RewardFunction(reward_net=reward_net,
-                                                   policy=lambda x: gen_data.all_characters[
-                                                       np.random.randint(gen_data.n_characters)],
-                                                   actions=gen_data.all_characters))
-        stack_rnn = StackRNN(d_model, hidden_size, True, 'lstm', num_layers, stack_width, stack_depth,
-                             dropout=0.2, k_mask_func=encoder.k_padding_mask)
+        reward_function = RewardFunction(reward_net=reward_net, policy=lambda x: gen_data.all_characters[
+            np.random.randint(gen_data.n_characters)], actions=gen_data.all_characters)
+
+        # Create molecule generation environment
+        env = MoleculeEnv(gen_data, reward_function)
+
+        # Create agent network
+        stack_rnn = StackRNN(1, d_model, hidden_size, True, 'lstm', stack_width, stack_depth,
+                             k_mask_func=encoder.k_padding_mask)
         stack_linear = StackRNNLinear(gen_data.n_characters, hidden_size, bidirectional=False)
-        selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
         agent_net = torch.nn.Sequential(encoder, stack_rnn, stack_linear)
+
+        # Create agent
+        selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
         agent = PolicyAgent(model=agent_net,
                             action_selector=selector,
                             states_preprocessor=seq2tensor,
-                            initial_state=init_func,
+                            initial_state=hidden_states_func,
                             apply_softmax=True,
                             device='cpu')
-        exp_source = ExperienceSourceFirstLast(env, agent, gamma=0.97, steps_count=env.max_len)
+
+        # Ptan ops for aggregating experiences
+        exp_source = ExperienceSourceFirstLast(env, agent, gamma=0.97)
+
+        # Begin simulation and training
         batch_states, batch_actions, batch_qvals = [], [], []
         for step_idx, exp in enumerate(exp_source):
             batch_states.append(exp.state)
-            batch_actions.append(int(exp.action))
+            batch_actions.append(exp.action)
+            print(f'state = {exp.state}, action = {exp.action}, reward = {exp.reward}, next_state = {exp.last_state}')
+            if step_idx == 5:
+                break
 
 
 def get_initial_states(batch_size, hidden_size, num_layers, stack_depth, stack_width, unit_type):

@@ -71,4 +71,4 @@ class RewardFunction:
                 reward = self.net(inp).squeeze().item()
                 return reward
             else:
-                return -1000.
+                return -10.

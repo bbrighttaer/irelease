@@ -56,7 +56,6 @@ class PolicyAgent(BaseAgent):
         state, agent_states = states[0][-1], agent_states[0]
         state, _ = self.states_preprocessor(state, self.action_selector.actions)
         state = torch.from_numpy(state).long().to(self.device)
-        agent_states = list(agent_states)
         x = [state] + agent_states
         outputs = self.model(x)
         if isinstance(outputs, list):  # RNN case

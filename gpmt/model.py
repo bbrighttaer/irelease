@@ -382,7 +382,7 @@ def get_std_opt(model, d_model):
 
 class StackRNN(nn.Module):
     def __init__(self, layer_index, input_size, hidden_size, has_stack, unit_type='lstm', stack_width=None,
-                 stack_depth=None, bias=True, dropout=0., k_mask_func=None):
+                 stack_depth=None, bias=True, k_mask_func=None):
         super(StackRNN, self).__init__()
         self.layer_index = layer_index
         self.hidden_size = int(hidden_size)
@@ -400,9 +400,9 @@ class StackRNN(nn.Module):
         else:
             input_size = int(input_size)
         if self.unit_type == 'lstm':
-            self.rnn = nn.LSTM(input_size, self.hidden_size, 1, dropout=dropout, bidirectional=False, bias=bias)
+            self.rnn = nn.LSTM(input_size, self.hidden_size, 1, bidirectional=False, bias=bias)
         elif self.unit_type == 'gru':
-            self.rnn = nn.GRU(input_size, self.hidden_size, 1, dropout=dropout, bidirectional=False, bias=bias)
+            self.rnn = nn.GRU(input_size, self.hidden_size, 1, bidirectional=False, bias=bias)
 
     def forward(self, inp, **kwargs):
         """
@@ -423,6 +423,7 @@ class StackRNN(nn.Module):
         hidden, cell, stack = hidden_states
         batch_size = x.shape[1]
         seq_length = x.shape[0]
+        hidden_shape = hidden.shape
 
         if self.has_cell:
             hidden = (hidden, cell)
@@ -432,7 +433,7 @@ class StackRNN(nn.Module):
             if self.has_stack:
                 # Stack update
                 if self.has_cell:
-                    hidden_2_stack = hidden[0]
+                    hidden_2_stack = hidden[0].view(*hidden_shape)
                 else:
                     hidden_2_stack = hidden
                 hidden_2_stack = hidden_2_stack.permute(1, 0, 2).contiguous().view(batch_size, -1)
@@ -529,6 +530,26 @@ class StackRNNLinear(nn.Module):
         #     x = F.linear(x, weights)
         rnn_input[0] = self.decoder(x)
         return rnn_input
+
+
+class StackedRNNDropout(nn.Module):
+    def __init__(self, p):
+        super(StackedRNNDropout, self).__init__()
+        self.dropout = nn.Dropout(p)
+
+    def forward(self, inp):
+        inp[0] = self.dropout(inp[0])
+        return inp
+
+
+class StackedRNNLayerNorm(nn.Module):
+    def __init__(self, dim):
+        super(StackedRNNLayerNorm, self).__init__()
+        self.normalize = nn.LayerNorm(dim)
+
+    def forward(self, inp):
+        inp[0] = self.normalize(inp[0])
+        return inp
 
 
 class RewardNetRNN(nn.Module):

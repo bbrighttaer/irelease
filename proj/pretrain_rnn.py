@@ -23,10 +23,10 @@ from soek import CategoricalParam, LogRealParam, RealParam, DiscreteParam, DataN
 from soek.bopt import GPMinArgs
 from soek.template import Trainer
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm, trange
+from tqdm import trange
 
 from gpmt.data import GeneratorData
-from gpmt.model import Encoder, StackRNN, StackRNNLinear
+from gpmt.model import Encoder, StackRNN, StackRNNLinear, StackedRNNLayerNorm, StackedRNNDropout
 from gpmt.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, init_hidden, init_cell, init_stack, \
     generate_smiles, time_since, get_default_tokens
 
@@ -66,6 +66,8 @@ class GpmtPretrain(Trainer):
                                        stack_width=hparams['stack_width'],
                                        stack_depth=hparams['stack_depth'],
                                        k_mask_func=encoder.k_padding_mask))
+            rnn_layers.append(StackedRNNDropout(hparams['dropout']))
+            rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
 
         model = nn.Sequential(encoder,
                               *rnn_layers,
