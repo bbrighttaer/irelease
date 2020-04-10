@@ -56,7 +56,7 @@ class GpmtPretrain(Trainer):
         # Create stack-augmented transformer (Decoder) layer(s)
         encoder = Encoder(vocab_size=gen_data.n_characters, d_model=hparams['d_model'],
                           padding_idx=gen_data.char2idx[gen_data.pad_symbol],
-                          dropout=hparams['dropout'])
+                          dropout=hparams['dropout'], return_tuple=True)
         attn_layers = []
         for i in range(hparams['attn_layers']):
             attn_layers.append(

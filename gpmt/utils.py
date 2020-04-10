@@ -525,22 +525,27 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
     """
     generator.eval()
     if gen_type == 'rnn':
-        hidden = init_hidden(num_layers=init_args['num_layers'], batch_size=num_samples,
-                             hidden_size=init_args['hidden_size'],
-                             num_dir=init_args['num_dir'], dvc=init_args['device'])
-        if init_args['has_cell']:
-            cell = init_cell(num_layers=init_args['num_layers'], batch_size=num_samples,
-                             hidden_size=init_args['hidden_size'],
-                             num_dir=init_args['num_dir'], dvc=init_args['device'])
-        else:
-            cell = None
-        if init_args['has_stack']:
-            stack = init_stack(num_samples, init_args['stack_width'], init_args['stack_depth'],
-                               dvc=init_args['device'])
+        hidden_states = []
+        for _ in range(init_args['num_layers']):
+            hidden = init_hidden(num_layers=1, batch_size=num_samples,
+                                 hidden_size=init_args['hidden_size'],
+                                 num_dir=init_args['num_dir'], dvc=init_args['device'])
+            if init_args['has_cell']:
+                cell = init_cell(num_layers=init_args['num_layers'], batch_size=num_samples,
+                                 hidden_size=init_args['hidden_size'],
+                                 num_dir=init_args['num_dir'], dvc=init_args['device'])
+            else:
+                cell = None
+            if init_args['has_stack']:
+                stack = init_stack(num_samples, init_args['stack_width'], init_args['stack_depth'],
+                                   dvc=init_args['device'])
+            else:
+                stack = None
+            hidden_states.append((hidden, cell, stack))
         else:
             stack = None
 
-    prime_input, _ = gen_data.seq2tensor([prime_str] * num_samples, tokens=gen_data.all_characters, flip=False)
+    prime_input, _ = seq2tensor([prime_str] * num_samples, tokens=gen_data.all_characters, flip=False)
     prime_input = torch.from_numpy(prime_input).long().to(init_args['device'])
     new_samples = [[prime_str] * num_samples]
 
@@ -550,9 +555,8 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
             x_ = prime_input[:, p]
             if x_.ndim == 1:
                 x_ = x_.view(-1, 1)
-            _, hidden, stack = generator([x_, hidden, cell, stack])
-            if init_args['has_cell']:
-                hidden, cell = hidden
+            outputs = generator([x_] + hidden_states)
+            hidden_states = outputs[1:]
     inp = prime_input[:, -1]
     if inp.ndim == 1:
         inp = inp.view(-1, 1)
@@ -561,10 +565,9 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
         # Start sampling
         for i in range(max_len - 1):
             if gen_type == 'rnn':
-                output, hidden, stack = generator([inp, hidden, cell, stack])
+                outputs = generator([inp] + hidden_states)
+                output, hidden_states = outputs[0], outputs[1:]
                 output = output.detach().cpu()
-                if init_args['has_cell']:
-                    hidden, cell = hidden
             elif gen_type == 'trans':
                 stack = init_stack_2d(num_samples, inp.shape[-1], init_args['stack_depth'],
                                       init_args['stack_width'],
@@ -584,7 +587,7 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
             # Prepare next input token for the generator
             if gen_type == 'trans':
                 predicted_char = np.array(new_samples).transpose()
-            inp, _ = gen_data.seq2tensor(predicted_char, tokens=gen_data.all_characters)
+            inp, _ = seq2tensor(predicted_char, tokens=gen_data.all_characters)
             inp = torch.from_numpy(inp).long().to(init_args['device'])
     except:
         print('SMILES generation error')
@@ -601,6 +604,20 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
             end_token_idx = sample.index(end_token)
             string_samples.append(''.join(sample[1:end_token_idx]))
     return string_samples
+
+
+def seq2tensor(seqs, tokens, flip=False):
+    tensor = np.zeros((len(seqs), len(seqs[0])))
+    for i in range(len(seqs)):
+        for j in range(len(seqs[i])):
+            if seqs[i][j] in tokens:
+                tensor[i, j] = tokens.index(seqs[i][j])
+            else:
+                tokens = tokens + [seqs[i][j]]
+                tensor[i, j] = tokens.index(seqs[i][j])
+    if flip:
+        tensor = np.flip(tensor, axis=1).copy()
+    return tensor, tokens
 
 
 class ExpAverage(object):

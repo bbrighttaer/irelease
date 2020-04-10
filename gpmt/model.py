@@ -13,6 +13,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from gpmt.utils import init_hidden, init_cell
+
 
 def clone(module, N):
     """
@@ -26,13 +28,28 @@ def clone(module, N):
 
 
 class Encoder(nn.Module):
-    def __init__(self, vocab_size, d_model, padding_idx, dropout=0.):
+    def __init__(self, vocab_size, d_model, padding_idx, dropout=0., return_tuple=False):
+        """
+        Provides the embeddings of characters.
+
+        Arguments
+        ---------
+        :param vocab_size: int
+            The size of the vocabulary.
+        :param d_model: int
+            The dimension of an embedding.
+        :param padding_idx: int
+            The index in the vocabulary that would be used for padding.
+        :param dropout: float
+            The dropout probability.
+        """
         super(Encoder, self).__init__()
         self.d_model = d_model
         self.padding_idx = padding_idx
         self.dropout = nn.Dropout(dropout)
         self.embedding = nn.Embedding(vocab_size, d_model, padding_idx=padding_idx)
         self.k_mask = None
+        self.return_tup = return_tuple
 
     def k_padding_mask(self):
         return self.k_mask
@@ -43,17 +60,27 @@ class Encoder(nn.Module):
     def forward(self, inp):
         """
         Retrieve embeddings for x using the indices.
-        :param x: tensor
-            x.shape = (batch_size, sequence length)
-        :return: tensor
-            x of shape (sequence length, batch_size, d_model)
+        :param inp: tuple or tensor (x)
+            Index 0 contains x: x.shape = (batch_size, sequence length)
+        :return: tuple or tensor
+            Updates x to have the shape (sequence length, batch_size, d_model)
         """
-        x = inp[0]
+        is_list = False
+        if isinstance(inp, list):
+            x = inp[0]
+            is_list = True
+        else:
+            x = inp
         self.k_mask = x == self.padding_idx
-        x = self.dropout(self.embedding(x) * math.sqrt(self.d_model))
+        # x = self.dropout(self.embedding(x) * math.sqrt(self.d_model))
+        x = self.embedding(x)
         x = x.permute(1, 0, 2)
-        inp[0] = x
-        return inp
+        if self.return_tup:
+            if not is_list:
+                inp = []
+            inp[0] = x
+            return inp
+        return x
 
 
 class PositionalEncoding(nn.Module):
@@ -82,9 +109,10 @@ class PositionalEncoding(nn.Module):
         """
         Concatenates the positional encodings to the input.
         Assumes x is organized as: (Length, batch size, d_model)
-        :param x:
-        :return:
-            x of shape (Length, batch size, d_model)
+        :param inp: tuple
+            First element in the tuple is x
+        :return: tuple
+            Updates x/index 0 of inp to have the shape (Length, batch size, d_model)
         """
         x = inp[0]
         seq_length, batch_size, _ = x.shape
@@ -200,14 +228,12 @@ class StackDecoderLayer(nn.Module):
         """
         Performs a forward pass through the stack-augmented Transformer-Decoder.
 
-        :param x: tensor
-            the input (seq. length, batch_size, d_model)
-            [2]: the previous stack. (batch_size, seq. length, stack_depth, stack_width).
+        :param inp: tuple
+            [0]: the input (seq. length, batch_size, d_model)
+            [1]: the previous stack. (batch_size, seq. length, stack_depth, stack_width).
         :return: tuple of tensors
             [0]: the transformed input (seq. length, batch_size, d_model)
-            [1]: the hidden state of the current layer containing information about each sample.
-                (batch_size, seq. length, d_hidden)
-            [2]: the updated stack. (batch_size, seq. length, stack_depth, stack_width).
+            [1]: the updated stack. (batch_size, seq. length, stack_depth, stack_width).
         """
         x_in, stack_prev = inp
         seq_length, batch_size, _ = x_in.shape
@@ -354,62 +380,29 @@ def get_std_opt(model, d_model):
                               torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
 
-class LabelSmoothing(nn.Module):
-
-    def __init__(self, size, padding_idx, smoothing=0.0):
-        super(LabelSmoothing, self).__init__()
-        self.criterion = nn.KLDivLoss(reduction='batchmean')
-        self.padding_idx = padding_idx
-        self.confidence = 1.0 - smoothing
-        self.smoothing = smoothing
-        self.size = size
-        self.true_dist = None
-
-    def forward(self, x, target):
-        assert x.size(1) == self.size
-        true_dist = x.data.clone()
-        true_dist.fill_(self.smoothing / (self.size - 2))
-        true_dist.scatter_(1, target.data.unsqueeze(1), self.confidence)
-        true_dist[:, self.padding_idx] = 0
-        mask = torch.nonzero(target.data == self.padding_idx)
-        if mask.dim() > 0:
-            true_dist.index_fill_(0, mask.squeeze(), 0.0)
-        self.true_dist = true_dist
-        loss = self.criterion(x, true_dist)
-        return loss
-
-
 class StackRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, has_stack, unit_type='lstm', num_layers=1, stack_width=None,
+    def __init__(self, layer_index, input_size, hidden_size, has_stack, unit_type='lstm', stack_width=None,
                  stack_depth=None, bias=True, dropout=0., k_mask_func=None):
         super(StackRNN, self).__init__()
-        self.num_layers = int(num_layers)
+        self.layer_index = layer_index
         self.hidden_size = int(hidden_size)
         self.has_stack = has_stack
+        self.has_cell = True if unit_type == 'lstm' else False
         self.stack_width = int(stack_width)
         self.stack_depth = int(stack_depth)
         self.unit_type = unit_type
         self.num_dir = 1
-        self.normalize_x = nn.LayerNorm(hidden_size * self.num_dir)
         self.k_padding_mask_func = k_mask_func
         if has_stack:
-            self.input_size = int(input_size + stack_width)
+            input_size = int(input_size + stack_width)
             self.A_linear = nn.Linear(hidden_size, 3)
             self.D_linear = nn.Linear(hidden_size, stack_width)
         else:
-            self.input_size = int(input_size)
+            input_size = int(input_size)
         if self.unit_type == 'lstm':
-            self.rnn = nn.LSTM(self.input_size, self.hidden_size, self.num_layers,
-                               dropout=dropout,
-                               bidirectional=False,
-                               bias=bias)
-            self.has_cell = True
+            self.rnn = nn.LSTM(input_size, self.hidden_size, 1, dropout=dropout, bidirectional=False, bias=bias)
         elif self.unit_type == 'gru':
-            self.rnn = nn.GRU(self.input_size, self.hidden_size, self.num_layers,
-                              dropout=dropout,
-                              bidirectional=False,
-                              bias=bias)
-            self.has_cell = False
+            self.rnn = nn.GRU(input_size, self.hidden_size, 1, dropout=dropout, bidirectional=False, bias=bias)
 
     def forward(self, inp, **kwargs):
         """
@@ -426,14 +419,15 @@ class StackRNN(nn.Module):
             [3] c_n (if LSTM units are used) of shape (num_layers * num_directions, batch, hidden_size) contianing the
                 cell state for t=seq_len
         """
-        x, hidden, cell, stack = inp
+        x, hidden_states = inp[0], inp[self.layer_index]
+        hidden, cell, stack = hidden_states
         batch_size = x.shape[1]
         seq_length = x.shape[0]
 
-        # Iteratively apply stack RNN to all characters in a sequence
-        outputs = []
         if self.has_cell:
             hidden = (hidden, cell)
+        # Iteratively apply stack RNN to all characters in a sequence
+        outputs = []
         for c in range(seq_length):
             if self.has_stack:
                 # Stack update
@@ -441,7 +435,7 @@ class StackRNN(nn.Module):
                     hidden_2_stack = hidden[0]
                 else:
                     hidden_2_stack = hidden
-                hidden_2_stack = hidden_2_stack.view(batch_size, hidden_2_stack.shape[-1])
+                hidden_2_stack = hidden_2_stack.permute(1, 0, 2).contiguous().view(batch_size, -1)
                 controls = torch.softmax(self.A_linear(hidden_2_stack), dim=-1)
                 stack_input = torch.tanh(self.D_linear(hidden_2_stack))
                 stack = self.stack_augmentation(stack_input, stack, controls)
@@ -454,10 +448,13 @@ class StackRNN(nn.Module):
             else:
                 output, hidden = self.rnn(x, hidden)
             outputs.append(output)
-
-        outputs = torch.cat(outputs)
-        outputs = [outputs, hidden, stack]
-        return outputs
+        x = torch.cat(outputs)
+        inp[0] = x
+        if self.has_cell:
+            inp[self.layer_index] = (hidden[0], hidden[1], stack)
+        else:
+            inp[self.layer_index] = (hidden, cell, stack)
+        return inp
 
     def stack_augmentation(self, input_val, prev_stack, controls):
         """
@@ -487,8 +484,8 @@ class StackRNN(nn.Module):
         zeros_at_the_bottom = torch.zeros(batch_size, 1, self.stack_width)
         zeros_at_the_bottom = zeros_at_the_bottom.to(input_val.device)
         a_push, a_pop, a_no_op = controls[:, 0], controls[:, 1], controls[:, 2]
-        stack_down = torch.cat((prev_stack[:, 1:], zeros_at_the_bottom), dim=1)
-        stack_up = torch.cat((input_val, prev_stack[:, :-1]), dim=1)
+        stack_down = torch.cat((prev_stack[:, 1:, :], zeros_at_the_bottom), dim=1)
+        stack_up = torch.cat((input_val, prev_stack[:, :-1, :]), dim=1)
         new_stack = a_no_op * prev_stack + a_push * stack_up + a_pop * stack_down
         return new_stack
 
@@ -496,9 +493,9 @@ class StackRNN(nn.Module):
 class StackRNNLinear(nn.Module):
     """Linearly projects Stack RNN outputs to a fixed dimension"""
 
-    def __init__(self, out_dim, hidden_size, bidirectional, encoder, bias=True, dropout=0.):
+    def __init__(self, out_dim, hidden_size, bidirectional, bias=True):  # , encoder, bias=True, dropout=0.):
         super(StackRNNLinear, self).__init__()
-        assert isinstance(encoder, Encoder)
+        # assert isinstance(encoder, Encoder)
         self.bias = bias
         if bidirectional:
             num_dir = 2
@@ -533,6 +530,60 @@ class StackRNNLinear(nn.Module):
         rnn_input[0] = self.decoder(x)
         return rnn_input
 
+
 class RewardNetRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, bidirectional=True, dropout=0.):
+    def __init__(self, input_size, hidden_size, num_layers, bidirectional=True, dropout=0., unit_type='lstm'):
         super(RewardNetRNN, self).__init__()
+        self.num_dir = 1
+        self.num_layers = num_layers
+        if bidirectional:
+            self.num_dir += 1
+        self.hidden_size = hidden_size
+        if unit_type == 'lstm':
+            self.has_cell = True
+            self.base_rnn = nn.LSTM(input_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
+            self.post_rnn = nn.LSTMCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
+        else:
+            self.has_cell = False
+            self.base_rnn = nn.GRU(input_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
+            self.post_rnn = nn.GRUCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
+        self.linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
+        self.reward_net = nn.Sequential(nn.LayerNorm(hidden_size),
+                                        nn.Linear(self.hidden_size, 1),
+                                        NonsatActivation())
+
+    def forward(self, x):
+        """
+        Evaluates the input to determine its reward.
+
+        Argument
+        :param x: tensor
+            Input from encoder of shape (seq_len, batch_size, embed_dim)
+        :return: tensor
+            Reward of shape (batch_size, 1)
+        """
+        seq_len, batch_size = x.shape[:2]
+
+        # Construct initial states
+        hidden = init_hidden(self.num_layers, batch_size, self.hidden_size, self.num_dir, x.device)
+        hidden_ = init_hidden(1, batch_size, self.hidden_size, 1, x.device).view(batch_size, self.hidden_size)
+        if self.has_cell:
+            cell = init_cell(self.num_layers, batch_size, self.hidden_size, self.num_dir, x.device)
+            cell_ = init_cell(1, batch_size, self.hidden_size, 1, x.device).view(batch_size, self.hidden_size)
+            hidden, hidden_ = (hidden, cell), (hidden_, cell_)
+
+        # Apply base rnn
+        output, hidden = self.base_rnn(x, hidden)
+
+        # Post-attention RNN
+        for i in range(seq_len):
+            h = hidden_[0] if self.has_cell else hidden_
+            s = h.unsqueeze(0).expand(seq_len, *h.shape)
+            x_ = torch.cat([output, s], dim=-1)
+            logits = self.linear(x_.contiguous().view(-1, x_.shape[-1]))
+            wts = torch.softmax(logits.view(seq_len, batch_size).t(), -1).unsqueeze(2)
+            x_ = x_.permute(1, 2, 0)
+            ctx = x_.bmm(wts).squeeze(dim=2)
+            hidden_ = self.post_rnn(ctx, hidden_)
+        reward = self.reward_net(hidden_[0] if self.has_cell else hidden_)
+        return reward

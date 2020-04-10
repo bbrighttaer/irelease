@@ -21,6 +21,7 @@ from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
 
 from gpmt.data import GeneratorData
+from gpmt.model import Encoder, RewardNetRNN
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer
 
 currentDT = dt.now()
@@ -43,11 +44,21 @@ class IReLeaSE(Trainer):
 
     @staticmethod
     def initialize(hparams, gen_data, *args, **kwargs):
+        encoder = Encoder(vocab_size=gen_data.n_characters, d_model=hparams['d_model'],
+                          padding_idx=gen_data.char2idx[gen_data.pad_symbol],
+                          dropout=hparams['dropout'], return_tuple=True)
+        reward_net = RewardNetRNN(input_size=hparams['d_model'],
+                                  hidden_size=hparams['hidden_size'],
+                                  num_layers=hparams['rw_net_num_layers'],
+                                  bidirectional=True,
+                                  dropout=hparams['dropout'],
+                                  unit_type=hparams['rw_net_unit_type'])
 
 
         optimizer = parse_optimizer(hparams, model)
         init_args = {'device': f'{device}:{dvc_id}',
-                     'batch_size': hparams['batch_size']}
+                     'batch_size': hparams['batch_size'],
+                     'gen_demo_data': gen_data}
         return init_args
 
     @staticmethod

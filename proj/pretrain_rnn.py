@@ -52,23 +52,28 @@ class GpmtPretrain(Trainer):
         gen_data.set_batch_size(hparams['batch_size'])
         # Create main model
         encoder = Encoder(vocab_size=gen_data.n_characters, d_model=hparams['d_model'],
-                          padding_idx=gen_data.char2idx[gen_data.pad_symbol], dropout=hparams['dropout'])
+                          padding_idx=gen_data.char2idx[gen_data.pad_symbol],
+                          dropout=hparams['dropout'], return_tuple=True)
+        # Create RNN layers
+        rnn_layers = []
         has_stack = True
-        model = nn.Sequential(encoder,
-                              StackRNN(input_size=hparams['d_model'],
+        for i in range(1, hparams['num_layers'] + 1):
+            rnn_layers.append(StackRNN(layer_index=i,
+                                       input_size=hparams['d_model'],
                                        hidden_size=hparams['d_model'],
                                        has_stack=has_stack,
                                        unit_type=hparams['unit_type'],
-                                       num_layers=hparams['num_layers'],
                                        stack_width=hparams['stack_width'],
                                        stack_depth=hparams['stack_depth'],
-                                       dropout=0.0,
-                                       k_mask_func=encoder.k_padding_mask),
+                                       k_mask_func=encoder.k_padding_mask))
+
+        model = nn.Sequential(encoder,
+                              *rnn_layers,
                               StackRNNLinear(out_dim=gen_data.n_characters,
                                              hidden_size=hparams['d_model'],
                                              bidirectional=False,
-                                             encoder=encoder,
-                                             dropout=hparams['dropout'],
+                                             # encoder=encoder,
+                                             # dropout=hparams['dropout'],
                                              bias=True))
         if use_cuda:
             model = model.cuda()
@@ -170,22 +175,27 @@ class GpmtPretrain(Trainer):
 
                             # track history if only in train
                             with torch.set_grad_enabled(phase == "train"):
+                                # Create hidden states for each layer
+                                hidden_states = []
+                                for _ in range(rnn_args['num_layers']):
+                                    hidden = init_hidden(num_layers=1, batch_size=batch_size,
+                                                         hidden_size=rnn_args['hidden_size'],
+                                                         num_dir=rnn_args['num_dir'], dvc=rnn_args['device'])
+                                    if rnn_args['has_cell']:
+                                        cell = init_cell(num_layers=1, batch_size=batch_size,
+                                                         hidden_size=rnn_args['hidden_size'],
+                                                         num_dir=rnn_args['num_dir'], dvc=rnn_args['device'])
+                                    else:
+                                        cell = None
+                                    if rnn_args['has_stack']:
+                                        stack = init_stack(batch_size, rnn_args['stack_width'],
+                                                           rnn_args['stack_depth'], dvc=rnn_args['device'])
+                                    else:
+                                        stack = None
+                                    hidden_states.append((hidden, cell, stack))
                                 # forward propagation
-                                hidden = init_hidden(num_layers=rnn_args['num_layers'], batch_size=batch_size,
-                                                     hidden_size=rnn_args['hidden_size'],
-                                                     num_dir=rnn_args['num_dir'], dvc=rnn_args['device'])
-                                if rnn_args['has_cell']:
-                                    cell = init_cell(num_layers=rnn_args['num_layers'], batch_size=batch_size,
-                                                     hidden_size=rnn_args['hidden_size'],
-                                                     num_dir=rnn_args['num_dir'], dvc=rnn_args['device'])
-                                else:
-                                    cell = None
-                                if rnn_args['has_stack']:
-                                    stack = init_stack(batch_size, rnn_args['stack_width'], rnn_args['stack_depth'],
-                                                       dvc=rnn_args['device'])
-                                else:
-                                    stack = None
-                                predictions, _, _ = model([inputs, hidden, cell, stack])
+                                outputs = model([inputs] + hidden_states)
+                                predictions = outputs[0]
                                 predictions = predictions.permute(1, 0, -1)
                                 predictions = predictions.contiguous().view(-1, predictions.shape[-1])
                                 labels = labels.contiguous().view(-1)
@@ -377,7 +387,7 @@ def main(flags):
 def default_hparams(args):
     return {
         'unit_type': 'gru',
-        'num_layers': 1,
+        'num_layers': 2,
         'dropout': 0.1,
         'd_model': 1500,
         'stack_width': 1500,

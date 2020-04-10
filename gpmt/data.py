@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 
-from gpmt.utils import read_smi_file, tokenize, read_object_property_file
+from gpmt.utils import read_smi_file, tokenize, read_object_property_file, seq2tensor
 
 
 class GeneratorData(object):
@@ -91,19 +91,6 @@ class GeneratorData(object):
         return [self.file[i][:-1] for i in index], \
                [self.file[i][1:] for i in index]
 
-    def seq2tensor(self, seqs, tokens, flip=True):
-        tensor = np.zeros((len(seqs), len(seqs[0])))
-        for i in range(len(seqs)):
-            for j in range(len(seqs[i])):
-                if seqs[i][j] in tokens:
-                    tensor[i, j] = tokens.index(seqs[i][j])
-                else:
-                    tokens = tokens + [seqs[i][j]]
-                    tensor[i, j] = tokens.index(seqs[i][j])
-        if flip:
-            tensor = np.flip(tensor, axis=1).copy()
-        return tensor, tokens
-
     def pad_sequences(self, seqs, max_length=None, pad_symbol=' '):
         if max_length is None:
             max_length = -1
@@ -122,13 +109,13 @@ class GeneratorData(object):
         assert (batch_size > 0)
         inp, target = self.random_chunk(batch_size)
         inp_padded, _ = self.pad_sequences(inp)
-        inp_tensor, self.all_characters = self.seq2tensor(inp_padded,
-                                                          tokens=self.all_characters,
-                                                          flip=False)
+        inp_tensor, self.all_characters = seq2tensor(inp_padded,
+                                                     tokens=self.all_characters,
+                                                     flip=False)
         target_padded, _ = self.pad_sequences(target)
-        target_tensor, self.all_characters = self.seq2tensor(target_padded,
-                                                             tokens=self.all_characters,
-                                                             flip=False)
+        target_tensor, self.all_characters = seq2tensor(target_padded,
+                                                        tokens=self.all_characters,
+                                                        flip=False)
         self.n_characters = len(self.all_characters)
         inp_tensor = torch.tensor(inp_tensor).long()
         target_tensor = torch.tensor(target_tensor).long()

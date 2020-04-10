@@ -1,18 +1,22 @@
 import unittest
 import numpy as np
 import torch
+from ptan.experience import ExperienceSourceFirstLast
+from tqdm import tqdm
+
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
-from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear
+from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear, RewardNetRNN
 from gpmt.reward import RewardFunction
+from gpmt.rl import PolicyAgent, MolEnvProbabilityActionSelector
 from gpmt.stackrnn import StackRNNCell
-from gpmt.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d
+from gpmt.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d, init_cell, seq2tensor
 
 gen_data_path = '../data/chembl_xsmall.smi'
-# tokens = get_default_tokens()
+tokens = get_default_tokens()
 # print(f'Number of tokens = {len(tokens)}')
 gen_data = GeneratorData(training_data_path=gen_data_path, delimiter='\t',
-                         cols_to_read=[0], keep_header=True, tokens=None, tokens_reload=True)
+                         cols_to_read=[0], keep_header=True, tokens=tokens, tokens_reload=True)
 
 bz = 32
 
@@ -26,7 +30,7 @@ class MyTestCase(unittest.TestCase):
     def test_embeddings(self):
         x, y = gen_data.random_training_set(batch_size=bz)
         encoder = Encoder(gen_data.n_characters, 128, gen_data.char2idx[gen_data.pad_symbol])
-        x = encoder(x)
+        x = encoder((x,))
         assert (x.ndim == 3)
         print(f'x.shape = {x.shape}')
 
@@ -52,8 +56,7 @@ class MyTestCase(unittest.TestCase):
         x = pe(x)
         h0 = init_hidden_2d(x.shape[1], x.shape[0], d_hidden)
         s0 = init_stack_2d(x.shape[1], x.shape[0], s_depth, s_width)
-        stack_decoder = StackDecoderLayer(d_model=d_model, num_heads=1,
-                                          d_hidden=d_hidden, stack_depth=s_depth,
+        stack_decoder = StackDecoderLayer(d_model=d_model, num_heads=1, stack_depth=s_depth,
                                           stack_width=s_width, dropout=.1)
         out = stack_decoder((x, s0))
         assert (len(out) == 3)
@@ -114,20 +117,26 @@ class MyTestCase(unittest.TestCase):
 
     def test_stack_rnn(self):
         x, y = gen_data.random_training_set(batch_size=bz)
-        d_model = 128
+        d_model = 12
         hidden_size = 16
         stack_width = 10
         stack_depth = 20
+        unit_type = 'lstm'
         num_layers = 2
+        hidden_states = [get_initial_states(bz, hidden_size, 1, stack_depth, stack_width, unit_type)
+                         for _ in range(num_layers)]
         encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol])
         x = encoder(x)
-        stack_rnn = StackRNN(d_model, hidden_size, False, 'lstm', num_layers, stack_width, stack_depth,
-                             dropout=0.2, k_mask_func=encoder.k_padding_mask)
-        outputs = stack_rnn(x)
+        stack_rnn_1 = StackRNN(1, d_model, hidden_size, True, 'gru', stack_width, stack_depth,
+                               dropout=0.0, k_mask_func=encoder.k_padding_mask)
+        stack_rnn_2 = StackRNN(2, hidden_size, hidden_size, True, 'gru', stack_width, stack_depth,
+                               dropout=0.0, k_mask_func=encoder.k_padding_mask)
+        outputs = stack_rnn_1([x] + hidden_states)
+        outputs = stack_rnn_2(outputs)
         assert len(outputs) > 1
-        linear = StackRNNLinear(4, hidden_size, bidirectional=False)
+        linear = StackRNNLinear(4, hidden_size, bidirectional=False, )
         x = linear(outputs)
-        print(x.shape)
+        print(x[0].shape)
 
     def test_mol_env(self):
         env = MoleculeEnv(gen_data, RewardFunction())
@@ -143,7 +152,14 @@ class MyTestCase(unittest.TestCase):
                 break
 
     def test_molecule_mcts(self):
-        env = MoleculeEnv(gen_data, RewardFunction(reward_net=None,
+        x, y = gen_data.random_training_set(batch_size=bz)
+        d_model = 8
+        hidden_size = 16
+        num_layers = 2
+        encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol],
+                          return_tuple=False)
+        rnn = RewardNetRNN(d_model, hidden_size, num_layers, bidirectional=True, unit_type='gru')
+        env = MoleculeEnv(gen_data, RewardFunction(reward_net=torch.nn.Sequential(encoder, rnn),
                                                    policy=lambda x: gen_data.all_characters[
                                                        np.random.randint(gen_data.n_characters)],
                                                    actions=gen_data.all_characters))
@@ -157,6 +173,61 @@ class MyTestCase(unittest.TestCase):
                 env.reset()
                 break
         print(f'rewards: {rewards}')
+
+    def test_reward_rnn(self):
+        x, y = gen_data.random_training_set(batch_size=bz)
+        d_model = 8
+        hidden_size = 16
+        num_layers = 2
+        encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol],
+                          return_tuple=False)
+        x = encoder([x])
+        rnn = RewardNetRNN(d_model, hidden_size, num_layers, bidirectional=True, unit_type='lstm')
+        r = rnn(x)
+        print(f'reward: {r}')
+
+    def test_policy_net(self):
+        d_model = 8
+        hidden_size = 16
+        num_layers = 2
+        stack_width = 10
+        stack_depth = 20
+        unit_type = 'lstm'
+        init_func = lambda: get_initial_states(1, hidden_size, num_layers, stack_depth, stack_width, unit_type)
+        encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol],
+                          return_tuple=True)
+        rnn = RewardNetRNN(d_model, hidden_size, num_layers, bidirectional=True, unit_type='gru')
+        reward_net = torch.nn.Sequential(encoder, rnn)
+        env = MoleculeEnv(gen_data, RewardFunction(reward_net=reward_net,
+                                                   policy=lambda x: gen_data.all_characters[
+                                                       np.random.randint(gen_data.n_characters)],
+                                                   actions=gen_data.all_characters))
+        stack_rnn = StackRNN(d_model, hidden_size, True, 'lstm', num_layers, stack_width, stack_depth,
+                             dropout=0.2, k_mask_func=encoder.k_padding_mask)
+        stack_linear = StackRNNLinear(gen_data.n_characters, hidden_size, bidirectional=False)
+        selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
+        agent_net = torch.nn.Sequential(encoder, stack_rnn, stack_linear)
+        agent = PolicyAgent(model=agent_net,
+                            action_selector=selector,
+                            states_preprocessor=seq2tensor,
+                            initial_state=init_func,
+                            apply_softmax=True,
+                            device='cpu')
+        exp_source = ExperienceSourceFirstLast(env, agent, gamma=0.97, steps_count=env.max_len)
+        batch_states, batch_actions, batch_qvals = [], [], []
+        for step_idx, exp in enumerate(exp_source):
+            batch_states.append(exp.state)
+            batch_actions.append(int(exp.action))
+
+
+def get_initial_states(batch_size, hidden_size, num_layers, stack_depth, stack_width, unit_type):
+    hidden = init_hidden(num_layers=num_layers, batch_size=batch_size, hidden_size=hidden_size, num_dir=1, dvc='cpu')
+    if unit_type == 'lstm':
+        cell = init_cell(num_layers=num_layers, batch_size=batch_size, hidden_size=hidden_size, num_dir=1, dvc='cpu')
+    else:
+        cell = None
+    stack = init_stack(batch_size, stack_width, stack_depth, dvc='cpu')
+    return hidden, cell, stack
 
 
 if __name__ == '__main__':

@@ -64,7 +64,7 @@ class MoleculeEnv(gym.Env):
     def step(self, action):
         assert isinstance(action, str) and len(action) == 1
         assert self.action_space.contains(action), 'Selected action is out of range.'
-        prev_state = self._state
+        prev_state = copy.deepcopy(self._state)
         self._state.append(action)
         use_mc = self._state[-1] != self.end_char
         reward = self.reward_func(self._state, use_mc)
