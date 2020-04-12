@@ -64,7 +64,8 @@ class MoleculeEnv(gym.Env):
             done = False
         info = {'prev_state': prev_state}
         self._state = list(state)
-        return np.array(self._state, dtype=np.object), reward, done, info
+        next_state = np.array(self._state, dtype=np.object) if not done else None
+        return next_state, reward, done, info
 
     def render(self, mode='human'):
         if mode == 'human':

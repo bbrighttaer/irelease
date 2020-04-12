@@ -8,7 +8,6 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import argparse
 import copy
-import math
 import os
 import random
 import time
@@ -17,15 +16,18 @@ from datetime import datetime as dt
 import numpy as np
 import torch
 import torch.nn as nn
+from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, RewardNetRNN, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, REINFORCE, GuidedRewardLearningIRL
-from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack
+from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
+    time_since
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -93,7 +95,12 @@ class IReLeaSE(Trainer):
         agent = PolicyAgent(model=agent_net,
                             action_selector=selector,
                             states_preprocessor=seq2tensor,
-                            initial_state=agent_net_hidden_states_func,
+                            initial_state=lambda: agent_net_hidden_states_func(
+                                num_layers=hparams['agent_params']['num_layers'],
+                                hidden_size=hparams['d_model'],
+                                stack_depth=hparams['agent_params']['stack_depth'],
+                                stack_width=hparams['agent_params']['stack_width'],
+                                unit_type=hparams['agent_params']['unit_type']),
                             apply_softmax=True,
                             device=f'{device}:{dvc_id}')
         drl_alg = REINFORCE(model=agent, optimizer=optimizer_agnet_net)
@@ -112,15 +119,15 @@ class IReLeaSE(Trainer):
                                          expert_func=None)
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         gen_data.set_batch_size(hparams['reward_params']['batch_size'])
-        irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, gen_data)
+        irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, gen_data,
+                                          k=hparams['reward_params']['irl_alg_num_iter'])
 
-        init_args = {'opt_agent_net': optimizer_agnet_net,
-                     'agent': agent,
+        init_args = {'agent': agent,
                      'drl_alg': drl_alg,
                      'irl_alg': irl_alg,
                      'reward_func': reward_function,
                      'gamma': hparams['gamma'],
-                     'episodes_to_start': hparams['episodes_to_start']}
+                     'episodes_to_train': hparams['episodes_to_train']}
         return init_args
 
     @staticmethod
@@ -143,13 +150,16 @@ class IReLeaSE(Trainer):
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_iters=5000, sim_data_node=None,
               tb_writer=None, is_hsearch=False):
-        optimizer_agent_net = init_args['opt_agent_net']
         agent = init_args['agent']
         drl_algorithm = init_args['drl_alg']
         irl_algorithm = init_args['irl_alg']
         reward_func = init_args['reward_func']
         gamma = init_args['gamma']
-        episodes_to_start = init_args['episodes_to_start']
+        episodes_to_train = init_args['episodes_to_train']
+        score_threshold = 50.
+        best_model_wts = None
+        best_score = None
+        delta = 1e-2
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -158,7 +168,54 @@ class IReLeaSE(Trainer):
         tb_writer = None  # tb_writer()
         start = time.time()
 
-        return {}
+        # Create environment
+        env = MoleculeEnv(actions=get_default_tokens(), reward_func=reward_func, seed=seed)
+
+        # Leverage PTAN mechanisms
+        exp_source = ExperienceSourceFirstLast(env, agent, gamma, steps_count=1, steps_delta=1)
+
+        # Begin simulation and training
+        total_rewards, batch_states, batch_actions, batch_qvals, cur_rewards = [], [], [], [], []
+        done_episodes = 0
+        batch_episodes = 0
+        step_idx = 0
+        for step_idx, exp in tqdm(enumerate(exp_source)):
+            batch_states.append(exp.state)
+            batch_actions.append(exp.action)
+            cur_rewards.append(exp.reward)
+
+            # Once the current episode is done calculate the Q-values of all state-action pairs in the episode
+            if exp.last_state is None:
+                batch_qvals.extend(calc_Qvals(cur_rewards, gamma))
+                cur_rewards.clear()
+                batch_episodes += 1
+
+            new_rewards = exp_source.pop_total_rewards()
+            if new_rewards:
+                done_episodes += 1
+                reward = new_rewards[0]
+                total_rewards.append(reward)
+                mean_rewards = float(np.mean(total_rewards[-100:]))
+                print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
+                      f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
+                if mean_rewards >= score_threshold:
+                    print(f'Solved in {step_idx} steps and {done_episodes} episodes!')
+                    best_model_wts = [copy.deepcopy(agent.model.state_dict()),
+                                      copy.deepcopy(reward_func.model.state_dict())]
+                    best_score = mean_rewards
+                    break
+
+            if batch_episodes < episodes_to_train:
+                continue
+
+            # Train models
+            irl_algorithm.fit(states=batch_states, actions=batch_actions)
+            drl_algorithm.fit(states=batch_states, actions=batch_actions, qvals=batch_qvals)
+
+        return {'model': [agent.model.load_state_dict(best_model_wts[0]),
+                          reward_func.model.load_state_dict(best_model_wts[1])],
+                'score': best_score,
+                'epoch': step_idx}
 
     @staticmethod
     def evaluate_model(*args, **kwargs):
@@ -173,6 +230,16 @@ class IReLeaSE(Trainer):
     @staticmethod
     def load_model(path, name):
         return torch.load(os.path.join(path, name), map_location=torch.device(f'{device}:{dvc_id}'))
+
+
+def calc_Qvals(rewards, gamma):
+    qval = []
+    sum_r = 0.
+    for r in reversed(rewards):
+        sum_r *= gamma
+        sum_r += r
+        qval.append(sum_r)
+    return list(reversed(qval))
 
 
 def main(flags):
@@ -198,9 +265,9 @@ def main(flags):
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-        print('---------------------------------------------------')
+        print('-----------------------------------------------------------------')
         print(f'{sim_label}\tDemonstrations file: {flags.demo_file}')
-        print('---------------------------------------------------')
+        print('-----------------------------------------------------------------')
 
         irelease = IReLeaSE()
         k = 1
@@ -221,10 +288,11 @@ def default_hparams(args):
             'dropout': 0.1,
             'monte_carlo_N': 50,
             'gamma': 0.99,
-            'episodes_to_start': 10,
+            'episodes_to_train': 2,
             'reward_params': {'num_layers': 2,
                               'unit_type': 'gru',
                               'batch_size': 64,
+                              'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001,

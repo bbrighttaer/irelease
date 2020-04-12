@@ -73,6 +73,7 @@ class RewardFunction:
             smiles = canonical_smiles([x_])
             smiles = [s for s in smiles if len(s) > 0]
             if len(smiles) > 0:
+                print(f'{smiles} is valid!')
                 inp, _ = seq2tensor(smiles, tokens=self.actions)
                 inp = torch.from_numpy(inp).long().to(self.device)
                 reward = self.model(inp).squeeze().item()

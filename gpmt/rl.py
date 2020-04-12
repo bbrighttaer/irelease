@@ -102,6 +102,8 @@ class REINFORCE(DRLAlgorithm):
             The Q-values or Returns corresponding to each state.
         """
         assert len(states) == len(actions) == len(qvals)
+        scores = []
+        return scores
 
 
 class GuidedRewardLearningIRL(DRLAlgorithm):
@@ -110,10 +112,11 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
     “Guided Cost Learning : Deep Inverse Optimal Control via Policy Optimization,” vol. 48, 2016.
     """
 
-    def __init__(self, model, optimizer, demo_gen_data):
+    def __init__(self, model, optimizer, demo_gen_data, k=10):
         self.model = model
         self.optimizer = optimizer
         self.demo_gen_data = demo_gen_data
+        self.k = k
 
     def fit(self, states, actions):
         """
@@ -127,3 +130,5 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             The actions produced by the background distribution.
         """
         assert len(states) == len(actions)
+        scores = []
+        return scores

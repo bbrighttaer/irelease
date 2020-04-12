@@ -243,7 +243,7 @@ class MyTestCase(unittest.TestCase):
             batch_states.append(exp.state)
             batch_actions.append(exp.action)
             print(f'state = {exp.state}, action = {exp.action}, reward = {exp.reward}, next_state = {exp.last_state}')
-            if step_idx == 5:
+            if exp.last_state is None:
                 break
 
 
