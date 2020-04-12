@@ -388,7 +388,7 @@ def main(flags):
 
 def default_hparams(args):
     return {
-        'unit_type': 'gru',
+        'unit_type': 'lstm',
         'num_layers': 2,
         'dropout': 0.1,
         'd_model': 1500,
