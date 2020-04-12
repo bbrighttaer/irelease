@@ -21,7 +21,7 @@ class RewardFunction:
     ----------
     :param reward_net: nn.Module
         Neural net that parameterizes the reward function. This is trained using IRL.
-    :param policy:
+    :param mc_policy:
         The policy to be used for Monte Carlo Tree Search.
     :param actions:
         All allowed actions in the simulation environment. In the molecule case, these are the unique tokens or chars.
@@ -31,16 +31,23 @@ class RewardFunction:
         Maximum length of a generated SMILES string.
     :param end_char:
         Character denoting the end of a SMILES string generation process.
+    :param expert_func: callable
+        A function that implements the true or expert's reward function to be used to monitor how well the
+        parameterized reward function is doing. This callback function shall take a single argument: the state, x
     """
 
-    def __init__(self, reward_net, policy, actions, mc_max_sims=50, max_len=100, end_char='>', device='cpu'):
-        self.net = reward_net
+    def __init__(self, reward_net, mc_policy, actions, mc_max_sims=50, max_len=100, end_char='>', device='cpu',
+                 expert_func=None):
+        if expert_func:
+            assert callable(expert_func)
+        self.model = reward_net
         self.actions = actions
-        self.policy = policy
+        self.mc_policy = mc_policy
         self.mc_max_sims = mc_max_sims
         self.max_len = max_len
         self.end_char = end_char
         self.device = device
+        self.expert_func = expert_func
 
     @torch.no_grad()
     def __call__(self, x, use_mc):
@@ -55,7 +62,7 @@ class RewardFunction:
             A scalar value representing the reward w.r.t. the given state x.
         """
         if use_mc:
-            mc_node = MoleculeMonteCarloTreeSearchNode(x, self, self.policy, self.actions, self.max_len,
+            mc_node = MoleculeMonteCarloTreeSearchNode(x, self, self.mc_policy, self.actions, self.max_len,
                                                        end_char=self.end_char)
             mcts = MonteCarloTreeSearch(mc_node)
             reward = mcts(simulations_number=self.mc_max_sims)
@@ -68,7 +75,12 @@ class RewardFunction:
             if len(smiles) > 0:
                 inp, _ = seq2tensor(smiles, tokens=self.actions)
                 inp = torch.from_numpy(inp).long().to(self.device)
-                reward = self.net(inp).squeeze().item()
+                reward = self.model(inp).squeeze().item()
                 return reward
             else:
                 return -10.
+
+    def expert_reward(self, x):
+        if self.expert_func:
+            return self.expert_func(x)
+        return None

@@ -583,6 +583,8 @@ class RewardNetRNN(nn.Module):
         :return: tensor
             Reward of shape (batch_size, 1)
         """
+        if isinstance(x, list):
+            x = x[0]
         seq_len, batch_size = x.shape[:2]
 
         # Construct initial states

@@ -20,8 +20,8 @@ class MoleculeEnv(gym.Env):
 
     Arguments:
     ----------
-    :param gen_data:
-        Instance of ::class::GeneratorData. It provides dataset information needed in the environment.
+    :param actions: list or tuple
+        Actions allowed in the environment. Thus, the unique set of SMILES characters.
     :param reward_func:
         Instance of ::class::RewardFunction. It provides the reward function for the environment.
     :param start_char:
@@ -35,16 +35,14 @@ class MoleculeEnv(gym.Env):
     """
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, gen_data, reward_func, start_char='<', end_char='>', max_len=100, seed=None):
-        assert isinstance(gen_data, GeneratorData)
+    def __init__(self, actions, reward_func, start_char='<', end_char='>', max_len=100, seed=None):
         assert isinstance(reward_func, RewardFunction)
-        self.data_gen = gen_data
         self.reward_func = reward_func
         self.start_char = start_char
         self.end_char = end_char
         self.max_len = max_len
-        self.action_space = MolDiscrete(n=gen_data.n_characters, all_chars=gen_data.all_characters)
-        self.observation_space = MolDiscrete(n=max_len, all_chars=gen_data.all_characters, dim=max_len)
+        self.action_space = MolDiscrete(n=len(actions), all_chars=actions)
+        self.observation_space = MolDiscrete(n=max_len, all_chars=actions, dim=max_len)
         self._state = [self.start_char]
         self.np_random = None
         self.seed(seed)

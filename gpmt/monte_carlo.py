@@ -32,6 +32,7 @@ class MoleculeMonteCarloTreeSearchNode(object):
     :param end_char:
         Character denoting the end of a SMILES string generation process.
     """
+
     def __init__(self, state, reward_func, policy, all_characters, max_len=100, parent=None, end_char='>'):
         self.state = state
         self.reward_func = reward_func
@@ -70,8 +71,10 @@ class MoleculeMonteCarloTreeSearchNode(object):
 
     def rollout(self):
         state = np.copy(self.state)
+        hidden_states = None
         for _ in range(self.max_len - len(state)):
-            action = self.policy(state)
+            # policy must return a tuple. See ::class::PolicyAgent
+            action, hidden_states = self.policy([state], hidden_states, monte_carlo=True)
             state = np.concatenate([state, list(action)])
             if action == self.end_char:
                 break

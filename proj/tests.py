@@ -211,15 +211,6 @@ class MyTestCase(unittest.TestCase):
         # Encoder to map character indices to embeddings
         encoder = Encoder(gen_data.n_characters, d_model, gen_data.char2idx[gen_data.pad_symbol], return_tuple=True)
 
-        # Reward function model
-        rnn = RewardNetRNN(d_model, hidden_size, num_layers, bidirectional=True, unit_type='gru')
-        reward_net = torch.nn.Sequential(encoder, rnn)
-        reward_function = RewardFunction(reward_net=reward_net, policy=lambda x: gen_data.all_characters[
-            np.random.randint(gen_data.n_characters)], actions=gen_data.all_characters)
-
-        # Create molecule generation environment
-        env = MoleculeEnv(gen_data, reward_function)
-
         # Create agent network
         stack_rnn = StackRNN(1, d_model, hidden_size, True, 'lstm', stack_width, stack_depth,
                              k_mask_func=encoder.k_padding_mask)
@@ -234,6 +225,14 @@ class MyTestCase(unittest.TestCase):
                             initial_state=hidden_states_func,
                             apply_softmax=True,
                             device='cpu')
+
+        # Reward function model
+        rnn = RewardNetRNN(d_model, hidden_size, num_layers, bidirectional=True, unit_type='gru')
+        reward_net = torch.nn.Sequential(encoder, rnn)
+        reward_function = RewardFunction(reward_net=reward_net, mc_policy=agent, actions=gen_data.all_characters)
+
+        # Create molecule generation environment
+        env = MoleculeEnv(gen_data.all_characters, reward_function)
 
         # Ptan ops for aggregating experiences
         exp_source = ExperienceSourceFirstLast(env, agent, gamma=0.97)
