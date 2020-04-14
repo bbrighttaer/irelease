@@ -16,7 +16,7 @@ from datetime import datetime as dt
 import numpy as np
 import torch
 import torch.nn as nn
-from ptan.experience import ExperienceSourceFirstLast
+from ptan.experience import ExperienceSourceFirstLast, ExperienceReplayBuffer
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -25,7 +25,8 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, RewardNetRNN, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear
 from gpmt.reward import RewardFunction
-from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, REINFORCE, GuidedRewardLearningIRL
+from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, REINFORCE, GuidedRewardLearningIRL, \
+    StateActionProbRegistry, Trajectory, EpisodeStep
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since
 
@@ -45,8 +46,9 @@ else:
     dvc_id = 0
 
 
-def agent_net_hidden_states_func(num_layers, hidden_size, stack_depth, stack_width, unit_type):
-    return [get_initial_states(1, hidden_size, 1, stack_depth, stack_width, unit_type) for _ in range(num_layers)]
+def agent_net_hidden_states_func(num_layers, hidden_size, stack_depth, stack_width, unit_type, batch_size=1):
+    return [get_initial_states(batch_size, hidden_size, 1, stack_depth, stack_width, unit_type) for _ in
+            range(num_layers)]
 
 
 def get_initial_states(batch_size, hidden_size, num_layers, stack_depth, stack_width, unit_type):
@@ -90,8 +92,9 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
-        optimizer_agnet_net = parse_optimizer(hparams['agent_params'], agent_net)
+        optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
+        probs_reg = StateActionProbRegistry()
         agent = PolicyAgent(model=agent_net,
                             action_selector=selector,
                             states_preprocessor=seq2tensor,
@@ -102,8 +105,15 @@ class IReLeaSE(Trainer):
                                 stack_width=hparams['agent_params']['stack_width'],
                                 unit_type=hparams['agent_params']['unit_type']),
                             apply_softmax=True,
+                            probs_registry=probs_reg,
                             device=f'{device}:{dvc_id}')
-        drl_alg = REINFORCE(model=agent, optimizer=optimizer_agnet_net)
+        drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
+                            initial_states_func=lambda bz: agent_net_hidden_states_func(
+                                num_layers=hparams['agent_params']['num_layers'],
+                                hidden_size=hparams['d_model'],
+                                stack_depth=hparams['agent_params']['stack_depth'],
+                                stack_width=hparams['agent_params']['stack_width'],
+                                unit_type=hparams['agent_params']['unit_type'], batch_size=bz))
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -123,6 +133,7 @@ class IReLeaSE(Trainer):
                                           k=hparams['reward_params']['irl_alg_num_iter'])
 
         init_args = {'agent': agent,
+                     'probs_reg': probs_reg,
                      'drl_alg': drl_alg,
                      'irl_alg': irl_alg,
                      'reward_func': reward_function,
@@ -151,6 +162,7 @@ class IReLeaSE(Trainer):
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_iters=5000, sim_data_node=None,
               tb_writer=None, is_hsearch=False):
         agent = init_args['agent']
+        probs_reg = init_args['probs_reg']
         drl_algorithm = init_args['drl_alg']
         irl_algorithm = init_args['irl_alg']
         reward_func = init_args['reward_func']
@@ -159,7 +171,6 @@ class IReLeaSE(Trainer):
         score_threshold = 50.
         best_model_wts = None
         best_score = None
-        delta = 1e-2
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -176,18 +187,25 @@ class IReLeaSE(Trainer):
 
         # Begin simulation and training
         total_rewards, batch_states, batch_actions, batch_qvals, cur_rewards = [], [], [], [], []
+        trajectories = []
         done_episodes = 0
         batch_episodes = 0
         step_idx = 0
+        traj_prob = 1.
         for step_idx, exp in tqdm(enumerate(exp_source)):
             batch_states.append(exp.state)
             batch_actions.append(exp.action)
             cur_rewards.append(exp.reward)
+            traj_prob *= probs_reg.get(list(exp.state), exp.action)
 
             # Once the current episode is done calculate the Q-values of all state-action pairs in the episode
             if exp.last_state is None:
                 batch_qvals.extend(calc_Qvals(cur_rewards, gamma))
+                trajectories.append(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action, batch_qvals[-1]),
+                                               traj_prob=traj_prob))
+                traj_prob = 1.
                 cur_rewards.clear()
+                probs_reg.clear()
                 batch_episodes += 1
 
             new_rewards = exp_source.pop_total_rewards()
@@ -209,8 +227,15 @@ class IReLeaSE(Trainer):
                 continue
 
             # Train models
-            irl_algorithm.fit(states=batch_states, actions=batch_actions)
-            drl_algorithm.fit(states=batch_states, actions=batch_actions, qvals=batch_qvals)
+            irl_loss = irl_algorithm.fit(trajectories)
+            rl_loss = drl_algorithm.fit(states=batch_states, actions=batch_actions, qvals=batch_qvals)
+
+            # Reset
+            batch_episodes = 0
+            batch_states.clear()
+            batch_actions.clear()
+            batch_qvals.clear()
+            trajectories.clear()
 
         return {'model': [agent.model.load_state_dict(best_model_wts[0]),
                           reward_func.model.load_state_dict(best_model_wts[1])],
@@ -285,11 +310,11 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 32,
-            'dropout': 0.1,
+            'dropout': 0.0,
             'monte_carlo_N': 50,
             'gamma': 0.99,
-            'episodes_to_train': 2,
-            'reward_params': {'num_layers': 2,
+            'episodes_to_train': 10,
+            'reward_params': {'num_layers': 1,
                               'unit_type': 'gru',
                               'batch_size': 64,
                               'irl_alg_num_iter': 10,
@@ -298,7 +323,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001,
                               },
             'agent_params': {'unit_type': 'lstm',
-                             'num_layers': 2,
+                             'num_layers': 1,
                              'stack_width': 15,
                              'stack_depth': 20,
                              'optimizer': 'adadelta',

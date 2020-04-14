@@ -380,7 +380,8 @@ def main(flags):
                                     sim_data_node=data_node,
                                     tb_writer=summary_writer_creator)
             trainer.save_model(results['model'], flags.model_dir,
-                               name=f'gpmt-pretrained_stack-rnn_{date_label}_{results["score"]}_{results["epoch"]}')
+                               name=f'gpmt-pretrained_stack-rnn_{hyper_params["unit_type"]}_'
+                                    f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")

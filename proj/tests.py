@@ -1,4 +1,5 @@
 import unittest
+from collections import namedtuple, defaultdict
 import numpy as np
 import torch
 from ptan.experience import ExperienceSourceFirstLast
@@ -8,9 +9,11 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear, RewardNetRNN
 from gpmt.reward import RewardFunction
-from gpmt.rl import PolicyAgent, MolEnvProbabilityActionSelector
+from gpmt.rl import PolicyAgent, MolEnvProbabilityActionSelector, REINFORCE, GuidedRewardLearningIRL, \
+    StateActionProbRegistry
 from gpmt.stackrnn import StackRNNCell
 from gpmt.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d, init_cell, seq2tensor
+from proj.reinforcement import calc_Qvals
 
 gen_data_path = '../data/chembl_xsmall.smi'
 tokens = get_default_tokens()
@@ -204,8 +207,8 @@ class MyTestCase(unittest.TestCase):
         unit_type = 'lstm'
 
         # Create a function to provide initial hidden states
-        def hidden_states_func():
-            return [get_initial_states(1, hidden_size, 1, stack_depth, stack_width, unit_type) for _ in
+        def hidden_states_func(batch_size=1):
+            return [get_initial_states(batch_size, hidden_size, 1, stack_depth, stack_width, unit_type) for _ in
                     range(num_layers)]
 
         # Encoder to map character indices to embeddings
@@ -219,11 +222,13 @@ class MyTestCase(unittest.TestCase):
 
         # Create agent
         selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
+        probs_reg = StateActionProbRegistry()
         agent = PolicyAgent(model=agent_net,
                             action_selector=selector,
                             states_preprocessor=seq2tensor,
                             initial_state=hidden_states_func,
                             apply_softmax=True,
+                            probs_registry=probs_reg,
                             device='cpu')
 
         # Reward function model
@@ -237,13 +242,22 @@ class MyTestCase(unittest.TestCase):
         # Ptan ops for aggregating experiences
         exp_source = ExperienceSourceFirstLast(env, agent, gamma=0.97)
 
+        rl_alg = REINFORCE(agent_net, torch.optim.Adam(agent_net.parameters()), hidden_states_func)
+        gen_data.set_batch_size(1)
+        irl_alg = GuidedRewardLearningIRL(reward_net, torch.optim.Adam(reward_net.parameters()),
+                                          demo_gen_data=gen_data)
+
         # Begin simulation and training
         batch_states, batch_actions, batch_qvals = [], [], []
+        traj_prob = 1.
         for step_idx, exp in enumerate(exp_source):
             batch_states.append(exp.state)
             batch_actions.append(exp.action)
+            batch_qvals.append(exp.reward)
+            traj_prob *= probs_reg.get(list(exp.state), exp.action)
+
             print(f'state = {exp.state}, action = {exp.action}, reward = {exp.reward}, next_state = {exp.last_state}')
-            if exp.last_state is None:
+            if step_idx == 5:
                 break
 
 

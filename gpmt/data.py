@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 
-from gpmt.utils import read_smi_file, tokenize, read_object_property_file, seq2tensor
+from gpmt.utils import read_smi_file, tokenize, read_object_property_file, seq2tensor, pad_sequences
 
 
 class GeneratorData(object):
@@ -91,28 +91,16 @@ class GeneratorData(object):
         return [self.file[i][:-1] for i in index], \
                [self.file[i][1:] for i in index]
 
-    def pad_sequences(self, seqs, max_length=None, pad_symbol=' '):
-        if max_length is None:
-            max_length = -1
-            for seq in seqs:
-                max_length = max(max_length, len(seq))
-        lengths = []
-        for i in range(len(seqs)):
-            cur_len = len(seqs[i])
-            lengths.append(cur_len)
-            seqs[i] = seqs[i] + pad_symbol * (max_length - cur_len)
-        return seqs, lengths
-
     def random_training_set(self, batch_size=None):
         if batch_size is None:
             batch_size = self.batch_size
         assert (batch_size > 0)
         inp, target = self.random_chunk(batch_size)
-        inp_padded, _ = self.pad_sequences(inp)
+        inp_padded, _ = pad_sequences(inp)
         inp_tensor, self.all_characters = seq2tensor(inp_padded,
                                                      tokens=self.all_characters,
                                                      flip=False)
-        target_padded, _ = self.pad_sequences(target)
+        target_padded, _ = pad_sequences(target)
         target_tensor, self.all_characters = seq2tensor(target_padded,
                                                         tokens=self.all_characters,
                                                         flip=False)

@@ -58,7 +58,7 @@ class MoleculeEnv(gym.Env):
         state = self._state + [action]
         use_mc = action != self.end_char
         reward = self.reward_func(np.array(state), use_mc)
-        if len(self._state) == self.max_len or self._state[-1] == self.end_char:
+        if len(state) == self.max_len or state[-1] == self.end_char:
             done = True
         else:
             done = False

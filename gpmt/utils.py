@@ -620,6 +620,19 @@ def seq2tensor(seqs, tokens, flip=False):
     return tensor, tokens
 
 
+def pad_sequences(seqs, max_length=None, pad_symbol=' '):
+    if max_length is None:
+        max_length = -1
+        for seq in seqs:
+            max_length = max(max_length, len(seq))
+    lengths = []
+    for i in range(len(seqs)):
+        cur_len = len(seqs[i])
+        lengths.append(cur_len)
+        seqs[i] = seqs[i] + pad_symbol * (max_length - cur_len)
+    return seqs, lengths
+
+
 class ExpAverage(object):
     def __init__(self, beta, bias_cor=False):
         self.beta = beta
