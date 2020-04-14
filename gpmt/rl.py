@@ -203,13 +203,35 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             d_traj_probs.append(traj.traj_prob)
         d_traj, _ = pad_sequences(d_traj)
         d_samp, _ = seq2tensor(d_traj, tokens=get_default_tokens())
+        d_samp = torch.from_numpy(d_samp).long().to(self.device)
         losses = []
         for i in range(self.k):
+            # D_demo processing
             demo_states, demo_actions = self.demo_gen_data.random_training_set()
-            d_demo_trajs = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)
+            d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)
+            d_demo_out = self.model(d_demo)
 
-        return losses
+            # D_samp processing
+            d_samp_out = self.model(d_samp)
+            if d_samp_out.shape[0] < 1000:
+                d_samp_out = torch.cat([d_samp_out, d_demo_out], dim=0)
+            z = torch.ones(d_samp_out.shape[0]).float().to(self.device)  # dummy importance weights TODO: replace this
+            d_samp_out = z.view(-1, 1) * torch.exp(d_samp_out)
 
+            # objective
+            loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out))
+            loss = loss + self._calc_internal_diversity(d_traj)
+            losses.append(loss.item())
+            loss = -loss  # for maximization
+
+            # update params
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+        return np.mean(losses)
+
+    def _calc_internal_diversity(self, trajs):
+        return 0.
 
 class TrajectoriesBuffer:
     """

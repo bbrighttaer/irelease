@@ -227,8 +227,10 @@ class IReLeaSE(Trainer):
                 continue
 
             # Train models
+            print('Fitting models...')
             irl_loss = irl_algorithm.fit(trajectories)
             rl_loss = drl_algorithm.fit(states=batch_states, actions=batch_actions, qvals=batch_qvals)
+            print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}')
 
             # Reset
             batch_episodes = 0
