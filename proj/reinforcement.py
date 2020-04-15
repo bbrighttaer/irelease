@@ -114,7 +114,8 @@ class IReLeaSE(Trainer):
                                 hidden_size=hparams['d_model'],
                                 stack_depth=hparams['agent_params']['stack_depth'],
                                 stack_width=hparams['agent_params']['stack_width'],
-                                unit_type=hparams['agent_params']['unit_type'], batch_size=bz))
+                                unit_type=hparams['agent_params']['unit_type'], batch_size=bz),
+                            device=f'{device}:{dvc_id}')
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -132,7 +133,8 @@ class IReLeaSE(Trainer):
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         gen_data.set_batch_size(hparams['reward_params']['batch_size'])
         irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, gen_data,
-                                          k=hparams['reward_params']['irl_alg_num_iter'])
+                                          k=hparams['reward_params']['irl_alg_num_iter'],
+                                          device=f'{device}:{dvc_id}')
 
         init_args = {'agent': agent,
                      'probs_reg': probs_reg,
@@ -326,12 +328,12 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 64,
-            'dropout': 0.0,
-            'monte_carlo_N': 50,
+    return {'d_model': 128,
+            'dropout': 0.1,
+            'monte_carlo_N': 10,
             'gamma': 0.97,
-            'episodes_to_train': 1,
-            'reward_params': {'num_layers': 1,
+            'episodes_to_train': 10,
+            'reward_params': {'num_layers': 2,
                               'unit_type': 'gru',
                               'batch_size': 64,
                               'irl_alg_num_iter': 10,
@@ -341,7 +343,7 @@ def default_hparams(args):
                               },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
-                             'stack_width': 64,
+                             'stack_width': 128,
                              'stack_depth': 20,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
