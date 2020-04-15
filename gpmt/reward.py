@@ -69,17 +69,21 @@ class RewardFunction:
             return reward
         else:
             # Get reward of completed string using the reward net
-            x_ = ''.join(x.tolist())
-            smiles = canonical_smiles([x_])
-            smiles = [s for s in smiles if len(s) > 0]
-            if len(smiles) > 0:
-                print(f'{smiles} is valid!')
-                inp, _ = seq2tensor(smiles, tokens=self.actions)
-                inp = torch.from_numpy(inp).long().to(self.device)
-                reward = self.model(inp).squeeze().item()
-                return reward
-            else:
-                return -10.
+            state = ''.join(x.tolist())
+            # smiles = canonical_smiles([state])
+            # smiles = [s for s in smiles if len(s) > 0]
+            inp, _ = seq2tensor([state], tokens=self.actions)
+            inp = torch.from_numpy(inp).long().to(self.device)
+            reward = self.model(inp).squeeze().item()
+            return reward
+            # if len(smiles) > 0:
+            #     print(f'{smiles} is valid!')
+            #     inp, _ = seq2tensor(smiles, tokens=self.actions)
+            #     inp = torch.from_numpy(inp).long().to(self.device)
+            #     reward = self.model(inp).squeeze().item()
+            #     return reward
+            # else:
+            #     return -1.
 
     def expert_reward(self, x):
         if self.expert_func:

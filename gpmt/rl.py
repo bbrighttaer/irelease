@@ -152,10 +152,11 @@ class REINFORCE(DRLAlgorithm):
         x = torch.cat([x[states_len[i], i, :].reshape(1, -1) for i in range(x.shape[1])], dim=0)
         log_probs = torch.log_softmax(x, dim=-1)
         loss = qvals * log_probs[range(qvals.shape[0]), actions]
-        loss = -loss.mean()  # for maximization since pytorch optimizers minimize by default
-        loss.backward()
+        loss = loss.mean()
+        loss_max = -loss  # for maximization since pytorch optimizers minimize by default
+        loss_max.backward()
         self.optimizer.step()
-        return -loss.item()
+        return loss.item()
 
 
 def _preprocess_states_actions(actions, states, device):

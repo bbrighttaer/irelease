@@ -569,7 +569,9 @@ class RewardNetRNN(nn.Module):
             self.base_rnn = nn.GRU(input_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
             self.post_rnn = nn.GRUCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
         self.linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
-        self.reward_net = nn.Sequential(nn.LayerNorm(hidden_size), nn.Linear(self.hidden_size, 1), NonsatActivation())
+        self.reward_net = nn.Sequential(nn.LayerNorm(hidden_size),
+                                        nn.Linear(self.hidden_size, 1),
+                                        nn.Tanh())
 
     def forward(self, x):
         """

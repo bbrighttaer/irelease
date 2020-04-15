@@ -16,7 +16,7 @@ from datetime import datetime as dt
 import numpy as np
 import torch
 import torch.nn as nn
-from ptan.experience import ExperienceSourceFirstLast, ExperienceReplayBuffer
+from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -36,7 +36,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 3
+    dvc_id = 0
     use_cuda = True
     device = 'cuda'
     torch.cuda.set_device(dvc_id)
@@ -159,7 +159,7 @@ class IReLeaSE(Trainer):
         super().evaluate(*args, **kwargs)
 
     @staticmethod
-    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_iters=5000, sim_data_node=None,
+    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
               tb_writer=None, is_hsearch=False):
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -168,7 +168,7 @@ class IReLeaSE(Trainer):
         reward_func = init_args['reward_func']
         gamma = init_args['gamma']
         episodes_to_train = init_args['episodes_to_train']
-        score_threshold = 50.
+        score_threshold = 0.
         best_model_wts = None
         best_score = None
 
@@ -217,11 +217,10 @@ class IReLeaSE(Trainer):
                 print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
                       f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
                 if mean_rewards >= score_threshold:
-                    print(f'Solved in {step_idx} steps and {done_episodes} episodes!')
                     best_model_wts = [copy.deepcopy(agent.model.state_dict()),
                                       copy.deepcopy(reward_func.model.state_dict())]
                     best_score = mean_rewards
-                    break
+                    score_threshold = best_score
 
             if batch_episodes < episodes_to_train:
                 continue
@@ -231,6 +230,10 @@ class IReLeaSE(Trainer):
             irl_loss = irl_algorithm.fit(trajectories)
             rl_loss = drl_algorithm.fit(states=batch_states, actions=batch_actions, qvals=batch_qvals)
             print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}')
+
+            if batch_episodes == n_episodes:
+                print('Training completed!')
+                break
 
             # Reset
             batch_episodes = 0
@@ -311,22 +314,22 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 32,
+    return {'d_model': 64,
             'dropout': 0.0,
             'monte_carlo_N': 50,
-            'gamma': 0.99,
+            'gamma': 0.97,
             'episodes_to_train': 10,
             'reward_params': {'num_layers': 1,
                               'unit_type': 'gru',
                               'batch_size': 64,
                               'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
-                              'optimizer__global__weight_decay': 0.0005,
+                              'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001,
                               },
-            'agent_params': {'unit_type': 'lstm',
+            'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
-                             'stack_width': 15,
+                             'stack_width': 64,
                              'stack_depth': 20,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
