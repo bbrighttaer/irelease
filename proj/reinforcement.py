@@ -92,6 +92,7 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
+        agent_net = agent_net.to(f'{device}:{dvc_id}')
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
         probs_reg = StateActionProbRegistry()
@@ -123,6 +124,7 @@ class IReLeaSE(Trainer):
                                                 bidirectional=True,
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
+        reward_net = reward_net.to(f'{device}:{dvc_id}')
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=gen_data.all_characters,
                                          device=f'{device}:{dvc_id}',
                                          mc_max_sims=hparams['monte_carlo_N'],
