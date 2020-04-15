@@ -28,7 +28,7 @@ from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, REINFORCE, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since
+    time_since, generate_smiles
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -140,7 +140,15 @@ class IReLeaSE(Trainer):
                      'irl_alg': irl_alg,
                      'reward_func': reward_function,
                      'gamma': hparams['gamma'],
-                     'episodes_to_train': hparams['episodes_to_train']}
+                     'episodes_to_train': hparams['episodes_to_train'],
+                     'gen_args': {'num_layers': hparams['agent_params']['num_layers'],
+                                  'hidden_size': hparams['d_model'],
+                                  'num_dir': 1,
+                                  'stack_depth': hparams['agent_params']['stack_depth'],
+                                  'stack_width': hparams['agent_params']['stack_width'],
+                                  'has_stack': has_stack,
+                                  'has_cell': hparams['agent_params']['unit_type'] == 'lstm',
+                                  'device': f'{device}:{dvc_id}'}}
         return init_args
 
     @staticmethod
@@ -231,7 +239,9 @@ class IReLeaSE(Trainer):
             print('Fitting models...')
             irl_loss = irl_algorithm.fit(trajectories)
             rl_loss = drl_algorithm.fit(states=batch_states, actions=batch_actions, qvals=batch_qvals)
-            print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}')
+            samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
+                                      num_samples=2)
+            print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
 
             if batch_episodes == n_episodes:
                 print('Training completed!')
@@ -320,7 +330,7 @@ def default_hparams(args):
             'dropout': 0.0,
             'monte_carlo_N': 50,
             'gamma': 0.97,
-            'episodes_to_train': 10,
+            'episodes_to_train': 1,
             'reward_params': {'num_layers': 1,
                               'unit_type': 'gru',
                               'batch_size': 64,

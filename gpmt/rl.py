@@ -191,6 +191,10 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             self.replay_buffer = None
         self.batch_size = buffer_batch_size
 
+    @property
+    def generator(self):
+        return self.demo_gen_data
+
     @torch.enable_grad()
     def fit(self, trajectories):
         """Train the reward function / model using the GRL algorithm."""
