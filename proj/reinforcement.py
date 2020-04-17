@@ -23,10 +23,11 @@ from tqdm import tqdm
 
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
-from gpmt.model import Encoder, RewardNetRNN, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear
+from gpmt.model import Encoder, RewardNetRNN, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
+    RNNCritic
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, REINFORCE, GuidedRewardLearningIRL, \
-    StateActionProbRegistry, Trajectory, EpisodeStep
+    StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles
 
@@ -108,14 +109,34 @@ class IReLeaSE(Trainer):
                             apply_softmax=True,
                             probs_registry=probs_reg,
                             device=f'{device}:{dvc_id}')
-        drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
-                            initial_states_func=lambda bz: agent_net_hidden_states_func(
-                                num_layers=hparams['agent_params']['num_layers'],
-                                hidden_size=hparams['d_model'],
-                                stack_depth=hparams['agent_params']['stack_depth'],
-                                stack_width=hparams['agent_params']['stack_width'],
-                                unit_type=hparams['agent_params']['unit_type'], batch_size=bz),
-                            device=f'{device}:{dvc_id}')
+        critic = nn.Sequential(encoder,
+                               RNNCritic(hparams['d_model'], hparams['d_model'],
+                                         unit_type=hparams['critic_params']['unit_type'],
+                                         num_layers=hparams['critic_params']['num_layers']))
+        optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
+        # drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
+        #                     initial_states_func=lambda bz: agent_net_hidden_states_func(
+        #                         num_layers=hparams['agent_params']['num_layers'],
+        #                         hidden_size=hparams['d_model'],
+        #                         stack_depth=hparams['agent_params']['stack_depth'],
+        #                         stack_width=hparams['agent_params']['stack_width'],
+        #                         unit_type=hparams['agent_params']['unit_type'], batch_size=bz),
+        #                     device=f'{device}:{dvc_id}',
+        #                     gamma=hparams['gamma'])
+        drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
+                      critic=critic, critic_opt=optimizer_critic_net,
+                      initial_states_func=lambda bz: agent_net_hidden_states_func(
+                          num_layers=hparams['agent_params']['num_layers'],
+                          hidden_size=hparams['d_model'],
+                          stack_depth=hparams['agent_params']['stack_depth'],
+                          stack_width=hparams['agent_params']['stack_width'],
+                          unit_type=hparams['agent_params']['unit_type'], batch_size=bz),
+                      device=f'{device}:{dvc_id}',
+                      gamma=hparams['gamma'],
+                      gae_lambda=hparams['gae_lambda'],
+                      ppo_eps=hparams['ppo_eps'],
+                      ppo_epochs=hparams['ppo_epochs'],
+                      ppo_batch=hparams['ppo_batch'])
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -198,25 +219,24 @@ class IReLeaSE(Trainer):
         exp_source = ExperienceSourceFirstLast(env, agent, gamma, steps_count=1, steps_delta=1)
 
         # Begin simulation and training
-        total_rewards, batch_states, batch_actions, batch_qvals, cur_rewards = [], [], [], [], []
+        total_rewards = []
         trajectories = []
         done_episodes = 0
         batch_episodes = 0
         step_idx = 0
         traj_prob = 1.
+        exp_trajectories = []
+        exp_traj = []
         for step_idx, exp in tqdm(enumerate(exp_source)):
-            batch_states.append(exp.state)
-            batch_actions.append(exp.action)
-            cur_rewards.append(exp.reward)
+            exp_traj.append(exp)
             traj_prob *= probs_reg.get(list(exp.state), exp.action)
 
             # Once the current episode is done calculate the Q-values of all state-action pairs in the episode
             if exp.last_state is None:
-                batch_qvals.extend(calc_Qvals(cur_rewards, gamma))
-                trajectories.append(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action, batch_qvals[-1]),
-                                               traj_prob=traj_prob))
+                trajectories.append(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action), traj_prob=traj_prob))
+                exp_trajectories.append(exp_traj)
+                exp_traj = []
                 traj_prob = 1.
-                cur_rewards.clear()
                 probs_reg.clear()
                 batch_episodes += 1
 
@@ -240,7 +260,7 @@ class IReLeaSE(Trainer):
             # Train models
             print('Fitting models...')
             irl_loss = irl_algorithm.fit(trajectories)
-            rl_loss = drl_algorithm.fit(states=batch_states, actions=batch_actions, qvals=batch_qvals)
+            rl_loss = drl_algorithm.fit(exp_trajectories)
             samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
                                       num_samples=2)
             print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
@@ -251,10 +271,8 @@ class IReLeaSE(Trainer):
 
             # Reset
             batch_episodes = 0
-            batch_states.clear()
-            batch_actions.clear()
-            batch_qvals.clear()
             trajectories.clear()
+            exp_trajectories.clear()
 
         return {'model': [agent.model.load_state_dict(best_model_wts[0]),
                           reward_func.model.load_state_dict(best_model_wts[1])],
@@ -274,16 +292,6 @@ class IReLeaSE(Trainer):
     @staticmethod
     def load_model(path, name):
         return torch.load(os.path.join(path, name), map_location=torch.device(f'{device}:{dvc_id}'))
-
-
-def calc_Qvals(rewards, gamma):
-    qval = []
-    sum_r = 0.
-    for r in reversed(rewards):
-        sum_r *= gamma
-        sum_r += r
-        qval.append(sum_r)
-    return list(reversed(qval))
 
 
 def main(flags):
@@ -330,25 +338,33 @@ def main(flags):
 def default_hparams(args):
     return {'d_model': 128,
             'dropout': 0.1,
-            'monte_carlo_N': 10,
-            'gamma': 0.97,
-            'episodes_to_train': 10,
+            'monte_carlo_N': 5,
+            'gamma': 0.99,
+            'episodes_to_train': 3,
+            'gae_lambda': 0.95,
+            'ppo_eps': 0.2,
+            'ppo_batch': 64,
+            'ppo_epochs': 10,
             'reward_params': {'num_layers': 2,
                               'unit_type': 'gru',
                               'batch_size': 64,
                               'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
                               'optimizer__global__weight_decay': 0.00005,
-                              'optimizer__global__lr': 0.001,
-                              },
+                              'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
                              'stack_width': 128,
                              'stack_depth': 20,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
-                             'optimizer__global__lr': 0.001,
-                             }}
+                             'optimizer__global__lr': 0.001},
+            'critic_params': {'num_layers': 1,
+                              'unit_type': 'gru',
+                              'optimizer': 'adam',
+                              'optimizer__global__weight_decay': 0.00005,
+                              'optimizer__global__lr': 0.001}
+            }
 
 
 def get_hparam_config(args):

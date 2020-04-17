@@ -570,8 +570,7 @@ class RewardNetRNN(nn.Module):
             self.post_rnn = nn.GRUCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
         self.linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
         self.reward_net = nn.Sequential(nn.LayerNorm(hidden_size),
-                                        nn.Linear(self.hidden_size, 1),
-                                        nn.Tanh())
+                                        nn.Linear(self.hidden_size, 1))
 
     def forward(self, x):
         """
@@ -610,3 +609,34 @@ class RewardNetRNN(nn.Module):
             hidden_ = self.post_rnn(ctx, hidden_)
         reward = self.reward_net(hidden_[0] if self.has_cell else hidden_)
         return reward
+
+
+class RNNCritic(nn.Module):
+    def __init__(self, input_size, hidden_size, unit_type='gru', num_layers=1):
+        super(RNNCritic, self).__init__()
+        rnn = nn.GRU if unit_type == 'gru' else nn.LSTM
+        self.has_cell = unit_type == 'lstm'
+        self.hidden_size = hidden_size
+        self.rnn = rnn(input_size, hidden_size, num_layers, bidirectional=True)
+        self.num_layers = 1
+        self.norm = nn.LayerNorm(hidden_size * 2)
+        self.linear = nn.Linear(hidden_size * 2, 1)
+
+    def forward(self, x):
+        """
+        Critic net
+        :param x: tensor
+            x.shape structure is (seq. len, batch, dim)
+        :return: tensor
+            (seq_len/states, batch, 1)
+        """
+        if isinstance(x, (list, tuple)):
+            x = x[0]
+        batch_size = x.shape[1]
+        hidden = init_hidden(1, batch_size, self.hidden_size, 2, x.device)
+        if self.has_cell:
+            cell = init_cell(1, x.shape[1], self.hidden_size, 2, x.device)
+            hidden = (hidden, cell)
+        x, _ = self.rnn(x, hidden)
+        x = self.linear(self.norm(x))
+        return x

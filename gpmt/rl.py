@@ -15,7 +15,7 @@ from ptan.agent import BaseAgent
 
 from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences
 
-EpisodeStep = namedtuple('EpisodeStep', ['state', 'action', 'qval'])
+EpisodeStep = namedtuple('EpisodeStep', ['state', 'action'])
 Trajectory = namedtuple('Trajectory', ['terminal_state', 'traj_prob'])
 
 
@@ -119,16 +119,39 @@ class DRLAlgorithm(object):
         self.fit(*args, **kwargs)
 
 
+def calc_Qvals(rewards, gamma):
+    qval = []
+    sum_r = 0.
+    for r in reversed(rewards):
+        sum_r *= gamma
+        sum_r += r
+        qval.append(sum_r)
+    return list(reversed(qval))
+
+
+def unpack_batch(trajs, gamma):
+    batch_states, batch_actions, batch_qvals = [], [], []
+    for traj in trajs:
+        rewards = []
+        for exp in traj:
+            batch_states.append(exp.state)
+            batch_actions.append(exp.action)
+            rewards.append(exp.reward)
+        batch_qvals.extend(calc_Qvals(rewards, gamma))
+    return batch_states, batch_actions, batch_qvals
+
+
 class REINFORCE(DRLAlgorithm):
-    def __init__(self, model, optimizer, initial_states_func, device='cpu'):
+    def __init__(self, model, optimizer, initial_states_func, gamma=0.97, device='cpu'):
         assert callable(initial_states_func)
         self.model = model
         self.optimizer = optimizer
         self.device = device
+        self.gamma = gamma
         self.initial_states_func = initial_states_func
 
     @torch.enable_grad()
-    def fit(self, states, actions, qvals):
+    def fit(self, trajectories):
         """
         Implements the REINFORCE training algorithm.
 
@@ -141,6 +164,7 @@ class REINFORCE(DRLAlgorithm):
         :param qvals: list
             The Q-values or Returns corresponding to each state.
         """
+        states, actions, qvals = unpack_batch(trajectories, self.gamma)
         assert len(states) == len(actions) == len(qvals)
         (states, states_len), actions, = _preprocess_states_actions(actions, states, self.device)
         hidden_states = self.initial_states_func(states.shape[0])
@@ -169,6 +193,106 @@ def _preprocess_states_actions(actions, states, device):
     actions, _ = seq2tensor(actions, get_default_tokens())
     actions = torch.from_numpy(actions.reshape(-1)).long().to(device)
     return (states, states_len), actions
+
+
+class PPO(DRLAlgorithm):
+    """
+    Proximal Policy Optimization, see: https://arxiv.org/abs/1707.06347
+    Credits: https://github.com/PacktPublishing/Deep-Reinforcement-Learning-Hands-On/blob/master/Chapter15/04_train_ppo.py
+
+    Arguments:
+    -----------
+    :param actor:
+    :param critic:
+    :param actor_opt:
+    :param critic_opt:
+    :param initial_states_func:
+    :param device:
+    """
+
+    def __init__(self, actor, critic, actor_opt, critic_opt, initial_states_func, gamma=0.99, gae_lambda=0.95,
+                 ppo_eps=0.2, ppo_epochs=10, ppo_batch=64, device='cpu'):
+        assert callable(initial_states_func)
+        self.actor = actor
+        self.critic = critic
+        self.actor_opt = actor_opt
+        self.critic_opt = critic_opt
+        self.initial_states_func = initial_states_func
+        self.device = device
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+        self.ppo_eps = ppo_eps
+        self.ppo_epochs = ppo_epochs
+        self.ppo_batch = ppo_batch
+
+    def calc_adv_ref(self, trajectory):
+        states, actions, _ = unpack_batch([trajectory], self.gamma)
+        last_state = ''.join(list(states[-1]))
+        inp, _ = seq2tensor([last_state], tokens=get_default_tokens())
+        inp = torch.from_numpy(inp).long().to(self.device)
+        values_v = self.critic(inp)
+        values_v = values_v.view(-1, 1)
+        values = values_v.squeeze().data.cpu().numpy()
+        last_gae = 0.0
+        result_adv = []
+        result_ref = []
+        for val, next_val, exp in zip(reversed(values[:-1]), reversed(values[1:]), reversed(trajectory[:-1])):
+            if exp.last_state is None:  # for terminal state
+                delta = exp.reward - val
+                last_gae = delta
+            else:
+                delta = exp.reward + self.gamma * next_val - val
+                last_gae = delta + self.gamma * self.gae_lambda * last_gae
+            result_adv.append(last_gae)
+            result_ref.append(last_gae + val)
+
+        adv_v = torch.FloatTensor(list(reversed(result_adv))).to(self.device)
+        ref_v = torch.FloatTensor(list(reversed(result_ref))).to(self.device)
+        return states[:-1], actions[:-1], adv_v, ref_v
+
+    def fit(self, trajectories):
+        # Calculate GAE
+        batch_states, batch_actions, batch_adv, batch_ref = [], [], [], []
+        for traj in trajectories:
+            states, actions, adv_v, ref_v = self.calc_adv_ref(traj)
+            batch_states.extend(states)
+            batch_actions.extend(actions)
+            batch_adv.extend(adv_v)
+            batch_ref.extend(ref_v)
+
+        # Normalize advantages
+        batch_adv = torch.tensor(batch_adv)
+        batch_adv = (batch_adv - batch_adv.mean()) / batch_adv.std()
+
+        # Calculate old probs of actions
+        (states, states_len), actions, = _preprocess_states_actions(batch_actions, batch_states, self.device)
+        hidden_states = self.initial_states_func(states.shape[0])
+        outputs = self.actor([states] + hidden_states)
+        x = outputs[0]
+        states_len = states_len - 1  # to select actions since samples are padded
+        x = torch.cat([x[states_len[i], i, :].reshape(1, -1) for i in range(x.shape[1])], dim=0)
+        old_log_probs = torch.log_softmax(x, dim=-1).detach()
+
+        sum_loss_value = 0.0
+        sum_loss_policy = 0.0
+        count_steps = 0
+
+        for epoch in range(self.ppo_epochs):
+            for batch_ofs in range(0, len(batch_states), self.ppo_batch):
+                # Select batch data
+                states_v = states[batch_ofs:batch_ofs + self.ppo_batch]
+                states_len_v = states_len[batch_ofs:batch_ofs + self.ppo_batch]
+                actions_v = actions[batch_ofs:batch_ofs + self.ppo_batch]
+                batch_adv_v = batch_adv[batch_ofs:batch_ofs + self.ppo_batch]
+                batch_ref_v = batch_ref[batch_ofs:batch_ofs + self.ppo_batch]
+                old_log_probs_v = old_log_probs[batch_ofs:batch_ofs + self.ppo_batch]
+                hidden_states_v = self.initial_states_func(states_v.shape[0])
+
+                # Critic training
+                self.critic_opt.zero_grad()
+
+                # Actor training
+                self.actor_opt.zero_grad()
 
 
 class GuidedRewardLearningIRL(DRLAlgorithm):
@@ -237,6 +361,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
 
     def _calc_internal_diversity(self, trajs):
         return 0.
+
 
 class TrajectoriesBuffer:
     """
