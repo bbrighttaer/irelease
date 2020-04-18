@@ -10,6 +10,7 @@ from collections import namedtuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
 
@@ -198,7 +199,9 @@ def _preprocess_states_actions(actions, states, device):
 class PPO(DRLAlgorithm):
     """
     Proximal Policy Optimization, see: https://arxiv.org/abs/1707.06347
-    Credits: https://github.com/PacktPublishing/Deep-Reinforcement-Learning-Hands-On/blob/master/Chapter15/04_train_ppo.py
+    Credits:
+    https://github.com/PacktPublishing/Deep-Reinforcement-Learning-Hands-On/blob/master/Chapter15/04_train_ppo.py
+    for a good tutorial on PPO.
 
     Arguments:
     -----------
@@ -225,6 +228,10 @@ class PPO(DRLAlgorithm):
         self.ppo_epochs = ppo_epochs
         self.ppo_batch = ppo_batch
 
+    @property
+    def model(self):
+        return self.actor
+
     def calc_adv_ref(self, trajectory):
         states, actions, _ = unpack_batch([trajectory], self.gamma)
         last_state = ''.join(list(states[-1]))
@@ -250,6 +257,7 @@ class PPO(DRLAlgorithm):
         ref_v = torch.FloatTensor(list(reversed(result_ref))).to(self.device)
         return states[:-1], actions[:-1], adv_v, ref_v
 
+    @torch.enable_grad()
     def fit(self, trajectories):
         # Calculate GAE
         batch_states, batch_actions, batch_adv, batch_ref = [], [], [], []
@@ -261,7 +269,8 @@ class PPO(DRLAlgorithm):
             batch_ref.extend(ref_v)
 
         # Normalize advantages
-        batch_adv = torch.tensor(batch_adv)
+        batch_ref = torch.tensor(batch_ref).float().to(self.device)
+        batch_adv = torch.tensor(batch_adv).float().to(self.device)
         batch_adv = (batch_adv - batch_adv.mean()) / batch_adv.std()
 
         # Calculate old probs of actions
@@ -270,12 +279,12 @@ class PPO(DRLAlgorithm):
         outputs = self.actor([states] + hidden_states)
         x = outputs[0]
         states_len = states_len - 1  # to select actions since samples are padded
-        x = torch.cat([x[states_len[i], i, :].reshape(1, -1) for i in range(x.shape[1])], dim=0)
+        x = torch.cat([x[states_len[i], i, :].reshape(1, -1) for i in range(x.shape[1])], dim=0).to(self.device)
         old_log_probs = torch.log_softmax(x, dim=-1).detach()
+        old_log_probs = old_log_probs[range(old_log_probs.shape[0]), actions]
 
-        sum_loss_value = 0.0
-        sum_loss_policy = 0.0
-        count_steps = 0
+        sum_loss_value = []
+        sum_loss_policy = []
 
         for epoch in range(self.ppo_epochs):
             for batch_ofs in range(0, len(batch_states), self.ppo_batch):
@@ -290,9 +299,30 @@ class PPO(DRLAlgorithm):
 
                 # Critic training
                 self.critic_opt.zero_grad()
+                value_v = self.critic(states_v)
+                value_v = torch.cat([value_v[states_len_v[i], i, :] for i in range(value_v.shape[1])], dim=0)
+                value_v = value_v.to(self.device)
+                loss_value_v = F.mse_loss(value_v, batch_ref_v)
+                loss_value_v.backward()
+                self.critic_opt.step()
+                sum_loss_value.append(loss_value_v.item())
 
                 # Actor training
                 self.actor_opt.zero_grad()
+                x_v = self.actor([states_v] + hidden_states_v)
+                x_v = x_v[0]
+                x_v = torch.cat([x_v[states_len_v[i], i, :].reshape(1, -1) for i in range(x_v.shape[1])], dim=0)
+                logprob_pi_v = torch.log_softmax(x_v, dim=-1)
+                logprob_pi_v = logprob_pi_v[range(logprob_pi_v.shape[0]), actions_v]
+                ratio_v = torch.exp(logprob_pi_v - old_log_probs_v)
+                surr_obj_v = batch_adv_v * ratio_v
+                clipped_surr_v = batch_adv_v * torch.clamp(ratio_v, 1.0 - self.ppo_eps, 1.0 + self.ppo_eps)
+                loss_policy_v = torch.min(surr_obj_v, clipped_surr_v).mean()
+                sum_loss_policy.append(loss_policy_v.item())
+                loss_policy_v = -loss_policy_v  # for maximization
+                loss_policy_v.backward()
+                self.actor_opt.step()
+        return np.mean(sum_loss_value), np.mean(sum_loss_policy)
 
 
 class GuidedRewardLearningIRL(DRLAlgorithm):

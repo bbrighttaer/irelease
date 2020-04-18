@@ -611,9 +611,9 @@ class RewardNetRNN(nn.Module):
         return reward
 
 
-class RNNCritic(nn.Module):
+class CriticRNN(nn.Module):
     def __init__(self, input_size, hidden_size, unit_type='gru', num_layers=1):
-        super(RNNCritic, self).__init__()
+        super(CriticRNN, self).__init__()
         rnn = nn.GRU if unit_type == 'gru' else nn.LSTM
         self.has_cell = unit_type == 'lstm'
         self.hidden_size = hidden_size
@@ -633,9 +633,9 @@ class RNNCritic(nn.Module):
         if isinstance(x, (list, tuple)):
             x = x[0]
         batch_size = x.shape[1]
-        hidden = init_hidden(1, batch_size, self.hidden_size, 2, x.device)
+        hidden = init_hidden(self.num_layers, batch_size, self.hidden_size, 2, x.device)
         if self.has_cell:
-            cell = init_cell(1, x.shape[1], self.hidden_size, 2, x.device)
+            cell = init_cell(self.num_layers, x.shape[1], self.hidden_size, 2, x.device)
             hidden = (hidden, cell)
         x, _ = self.rnn(x, hidden)
         x = self.linear(self.norm(x))

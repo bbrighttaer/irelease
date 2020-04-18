@@ -24,9 +24,9 @@ from tqdm import tqdm
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, RewardNetRNN, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
-    RNNCritic
+    CriticRNN
 from gpmt.reward import RewardFunction
-from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, REINFORCE, GuidedRewardLearningIRL, \
+from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles
@@ -110,7 +110,7 @@ class IReLeaSE(Trainer):
                             probs_registry=probs_reg,
                             device=f'{device}:{dvc_id}')
         critic = nn.Sequential(encoder,
-                               RNNCritic(hparams['d_model'], hparams['d_model'],
+                               CriticRNN(hparams['d_model'], hparams['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
                                          num_layers=hparams['critic_params']['num_layers']))
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
@@ -340,7 +340,7 @@ def default_hparams(args):
             'dropout': 0.1,
             'monte_carlo_N': 5,
             'gamma': 0.99,
-            'episodes_to_train': 3,
+            'episodes_to_train': 10,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 64,
