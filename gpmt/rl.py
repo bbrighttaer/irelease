@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
+from tqdm import trange
 
 from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences
 
@@ -59,23 +60,25 @@ class StateActionProbRegistry:
 
 
 class PolicyAgent(BaseAgent):
-    def __init__(self, model, action_selector, states_preprocessor=seq2tensor, initial_state=None, apply_softmax=True,
-                 device='cpu', probs_registry=None):
+    def __init__(self, model, action_selector, states_preprocessor=seq2tensor, initial_state=None,
+                 initial_state_args=None, apply_softmax=True, device='cpu', probs_registry=None):
         assert callable(states_preprocessor)
         if probs_registry:
             assert isinstance(probs_registry, StateActionProbRegistry)
         if initial_state:
             assert callable(initial_state)
+            assert isinstance(initial_state_args, dict)
         self.model = model
         self.action_selector = action_selector
         self.states_preprocessor = states_preprocessor
         self.apply_softmax = apply_softmax
         self.device = device
         self.init_state = initial_state
+        self.initial_state_args = initial_state_args
         self.probs_reg = probs_registry
 
     def initial_state(self):
-        return self.init_state()
+        return self.init_state(batch_size=1, **self.initial_state_args)
 
     @torch.no_grad()
     def __call__(self, states, agent_states=None, **kwargs):
@@ -143,13 +146,15 @@ def unpack_batch(trajs, gamma):
 
 
 class REINFORCE(DRLAlgorithm):
-    def __init__(self, model, optimizer, initial_states_func, gamma=0.97, device='cpu'):
+    def __init__(self, model, optimizer, initial_states_func, initial_states_args, gamma=0.97, device='cpu'):
         assert callable(initial_states_func)
+        assert isinstance(initial_states_args, dict)
         self.model = model
         self.optimizer = optimizer
         self.device = device
         self.gamma = gamma
         self.initial_states_func = initial_states_func
+        self.initial_states_args = initial_states_args
 
     @torch.enable_grad()
     def fit(self, trajectories):
@@ -168,7 +173,7 @@ class REINFORCE(DRLAlgorithm):
         states, actions, qvals = unpack_batch(trajectories, self.gamma)
         assert len(states) == len(actions) == len(qvals)
         (states, states_len), actions, = _preprocess_states_actions(actions, states, self.device)
-        hidden_states = self.initial_states_func(states.shape[0])
+        hidden_states = self.initial_states_func(states.shape[0], **self.initial_states_args)
         qvals = torch.tensor(qvals).float().to(self.device).view(-1, 1)
         self.optimizer.zero_grad()
         outputs = self.model([states] + hidden_states)
@@ -213,14 +218,16 @@ class PPO(DRLAlgorithm):
     :param device:
     """
 
-    def __init__(self, actor, critic, actor_opt, critic_opt, initial_states_func, gamma=0.99, gae_lambda=0.95,
-                 ppo_eps=0.2, ppo_epochs=10, ppo_batch=64, device='cpu'):
+    def __init__(self, actor, critic, actor_opt, critic_opt, initial_states_func, initial_states_args, gamma=0.99,
+                 gae_lambda=0.95, ppo_eps=0.2, ppo_epochs=10, ppo_batch=64, device='cpu'):
         assert callable(initial_states_func)
+        assert isinstance(initial_states_args, dict)
         self.actor = actor
         self.critic = critic
         self.actor_opt = actor_opt
         self.critic_opt = critic_opt
         self.initial_states_func = initial_states_func
+        self.initial_states_args = initial_states_args
         self.device = device
         self.gamma = gamma
         self.gae_lambda = gae_lambda
@@ -275,7 +282,7 @@ class PPO(DRLAlgorithm):
 
         # Calculate old probs of actions
         (states, states_len), actions, = _preprocess_states_actions(batch_actions, batch_states, self.device)
-        hidden_states = self.initial_states_func(states.shape[0])
+        hidden_states = self.initial_states_func(batch_size=states.shape[0], **self.initial_states_args)
         outputs = self.actor([states] + hidden_states)
         x = outputs[0]
         states_len = states_len - 1  # to select actions since samples are padded
@@ -286,7 +293,7 @@ class PPO(DRLAlgorithm):
         sum_loss_value = []
         sum_loss_policy = []
 
-        for epoch in range(self.ppo_epochs):
+        for epoch in trange(self.ppo_epochs, desc='PPO optimization...'):
             for batch_ofs in range(0, len(batch_states), self.ppo_batch):
                 # Select batch data
                 states_v = states[batch_ofs:batch_ofs + self.ppo_batch]
@@ -295,7 +302,7 @@ class PPO(DRLAlgorithm):
                 batch_adv_v = batch_adv[batch_ofs:batch_ofs + self.ppo_batch]
                 batch_ref_v = batch_ref[batch_ofs:batch_ofs + self.ppo_batch]
                 old_log_probs_v = old_log_probs[batch_ofs:batch_ofs + self.ppo_batch]
-                hidden_states_v = self.initial_states_func(states_v.shape[0])
+                hidden_states_v = self.initial_states_func(batch_size=states_v.shape[0], **self.initial_states_args)
 
                 # Critic training
                 self.critic_opt.zero_grad()
@@ -364,7 +371,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         d_samp, _ = seq2tensor(d_traj, tokens=get_default_tokens())
         d_samp = torch.from_numpy(d_samp).long().to(self.device)
         losses = []
-        for i in range(self.k):
+        for i in trange(self.k, desc='IRL optimization...'):
             # D_demo processing
             demo_states, demo_actions = self.demo_gen_data.random_training_set()
             d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)

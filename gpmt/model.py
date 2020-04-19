@@ -597,7 +597,7 @@ class RewardNetRNN(nn.Module):
         # Apply base rnn
         output, hidden = self.base_rnn(x, hidden)
 
-        # Post-attention RNN
+        # Additive attention, see: http://arxiv.org/abs/1409.0473
         for i in range(seq_len):
             h = hidden_[0] if self.has_cell else hidden_
             s = h.unsqueeze(0).expand(seq_len, *h.shape)
