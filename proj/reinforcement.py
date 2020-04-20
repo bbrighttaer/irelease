@@ -392,7 +392,7 @@ def default_hparams(args):
             'critic_params': {'num_layers': 1,
                               'unit_type': 'gru',
                               'optimizer': 'adam',
-                              'optimizer__global__weight_decay': 0.00005,
+                              'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001}
             }
 

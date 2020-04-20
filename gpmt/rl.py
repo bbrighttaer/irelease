@@ -399,8 +399,8 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             reps = outputs[0].detach()  # shape structure: (seq. len, batch, d_model)
             reps = reps[-1, :, :]
             reps = reps / torch.norm(reps, dim=-1, keepdim=True)  # select last rep and normalize vectors
-            sim_values = reps @ reps.t()
-            xx, yy = torch.meshgrid(d_out_combined.view(-1,), d_out_combined.view(-1,))
+            sim_values = reps @ reps.t()  # cosine similarity
+            xx, yy = torch.meshgrid(d_out_combined.view(-1, ), d_out_combined.view(-1, ))
             sqr_diffs = torch.pow(xx - yy, 2)
             reg_loss = sim_values * sqr_diffs
             reg_loss = torch.mean(torch.sum(reg_loss, dim=1))
