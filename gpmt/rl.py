@@ -245,8 +245,7 @@ class PPO(DRLAlgorithm):
         inp, _ = seq2tensor([last_state], tokens=get_default_tokens())
         inp = torch.from_numpy(inp).long().to(self.device)
         values_v = self.critic(inp)
-        values_v = values_v.view(-1, 1)
-        values = values_v.squeeze().data.cpu().numpy()
+        values = values_v.view(-1, ).data.cpu().numpy()
         last_gae = 0.0
         result_adv = []
         result_ref = []
@@ -338,8 +337,8 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
     “Guided Cost Learning : Deep Inverse Optimal Control via Policy Optimization,” vol. 48, 2016.
     """
 
-    def __init__(self, model, optimizer, demo_gen_data, k=10, use_buffer=True, buffer_size=1000, buffer_batch_size=100,
-                 device='cpu'):
+    def __init__(self, model, optimizer, demo_gen_data, agent_net, agent_net_init_func, agent_net_init_func_args, k=10,
+                 use_buffer=True, buffer_size=1000, buffer_batch_size=100, device='cpu'):
         self.model = model
         self.optimizer = optimizer
         self.demo_gen_data = demo_gen_data
@@ -351,6 +350,9 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         else:
             self.replay_buffer = None
         self.batch_size = buffer_batch_size
+        self.agent_net = agent_net
+        self.agent_net_init_func = agent_net_init_func
+        self.agent_net_init_args = agent_net_init_func_args
 
     @property
     def generator(self):
@@ -379,14 +381,32 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
 
             # D_samp processing
             d_samp_out = self.model(d_samp)
+            d_out_combined = torch.cat([d_samp_out, d_demo_out], dim=0)
             if d_samp_out.shape[0] < 1000:
-                d_samp_out = torch.cat([d_samp_out, d_demo_out], dim=0)
+                d_samp_out = d_out_combined
             z = torch.ones(d_samp_out.shape[0]).float().to(self.device)  # dummy importance weights TODO: replace this
             d_samp_out = z.view(-1, 1) * torch.exp(d_samp_out)
 
+            # Get rep vectors of trajs from agent_net and calculate the similarity regularization
+            pad_size = max(d_samp.shape[1], d_demo.shape[1])
+            d_samp_padded = torch.cat([d_samp, torch.zeros(d_samp.shape[0], pad_size - d_samp.shape[1])
+                                      .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
+            d_demo_padded = torch.cat([d_demo, torch.zeros(d_demo.shape[0], pad_size - d_demo.shape[1])
+                                      .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
+            d_samp_demo = torch.cat([d_samp_padded, d_demo_padded])
+            hidden = self.agent_net_init_func(d_samp_demo.shape[0], **self.agent_net_init_args)
+            outputs = self.agent_net([d_samp_demo] + hidden)
+            reps = outputs[0].detach()  # shape structure: (seq. len, batch, d_model)
+            reps = reps[-1, :, :]
+            reps = reps / torch.norm(reps, dim=-1, keepdim=True)  # select last rep and normalize vectors
+            sim_values = reps @ reps.t()
+            xx, yy = torch.meshgrid(d_out_combined.view(-1,), d_out_combined.view(-1,))
+            sqr_diffs = torch.pow(xx - yy, 2)
+            reg_loss = sim_values * sqr_diffs
+            reg_loss = torch.mean(torch.sum(reg_loss, dim=1))
+
             # objective
-            loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out))
-            loss = loss + self._calc_internal_diversity(d_traj)
+            loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out)) - reg_loss
             losses.append(loss.item())
             loss = -loss  # for maximization
 
@@ -395,9 +415,6 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             loss.backward()
             self.optimizer.step()
         return np.mean(losses)
-
-    def _calc_internal_diversity(self, trajs):
-        return 0.
 
 
 class TrajectoriesBuffer:

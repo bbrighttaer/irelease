@@ -99,15 +99,16 @@ class IReLeaSE(Trainer):
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
         probs_reg = StateActionProbRegistry()
+        init_state_args = {'num_layers': hparams['agent_params']['num_layers'],
+                           'hidden_size': hparams['d_model'],
+                           'stack_depth': hparams['agent_params']['stack_depth'],
+                           'stack_width': hparams['agent_params']['stack_width'],
+                           'unit_type': hparams['agent_params']['unit_type']}
         agent = PolicyAgent(model=agent_net,
                             action_selector=selector,
                             states_preprocessor=seq2tensor,
                             initial_state=agent_net_hidden_states_func,
-                            initial_state_args={'num_layers': hparams['agent_params']['num_layers'],
-                                                'hidden_size': hparams['d_model'],
-                                                'stack_depth': hparams['agent_params']['stack_depth'],
-                                                'stack_width': hparams['agent_params']['stack_width'],
-                                                'unit_type': hparams['agent_params']['unit_type']},
+                            initial_state_args=init_state_args,
                             apply_softmax=True,
                             probs_registry=probs_reg,
                             device=f'{device}:{dvc_id}')
@@ -128,11 +129,7 @@ class IReLeaSE(Trainer):
         drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
                       critic=critic, critic_opt=optimizer_critic_net,
                       initial_states_func=agent_net_hidden_states_func,
-                      initial_states_args={'num_layers': hparams['agent_params']['num_layers'],
-                                           'hidden_size': hparams['d_model'],
-                                           'stack_depth': hparams['agent_params']['stack_depth'],
-                                           'stack_width': hparams['agent_params']['stack_width'],
-                                           'unit_type': hparams['agent_params']['unit_type']},
+                      initial_states_args=init_state_args,
                       device=f'{device}:{dvc_id}',
                       gamma=hparams['gamma'],
                       gae_lambda=hparams['gae_lambda'],
@@ -157,6 +154,9 @@ class IReLeaSE(Trainer):
         gen_data.set_batch_size(hparams['reward_params']['batch_size'])
         irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, gen_data,
                                           k=hparams['reward_params']['irl_alg_num_iter'],
+                                          agent_net=agent_net,
+                                          agent_net_init_func=agent_net_hidden_states_func,
+                                          agent_net_init_func_args=init_state_args,
                                           device=f'{device}:{dvc_id}')
 
         init_args = {'agent': agent,
@@ -252,9 +252,9 @@ class IReLeaSE(Trainer):
                     trajectories.append(train_entry)
                     continue
 
+                exp_trajectories.append(train_entry)  # for ExperienceFirstLast objects
                 step_idx += 1
                 batch_episodes += 1
-                exp_trajectories.append(train_entry)  # for ExperienceFirstLast objects
 
                 if batch_episodes < episodes_to_train:
                     continue
@@ -370,7 +370,7 @@ def default_hparams(args):
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
-            'episodes_to_train': 100,
+            'episodes_to_train': 10,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 64,
@@ -380,7 +380,7 @@ def default_hparams(args):
                               'batch_size': 64,
                               'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
-                              'optimizer__global__weight_decay': 0.00005,
+                              'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
