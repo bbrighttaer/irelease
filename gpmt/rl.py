@@ -15,7 +15,7 @@ from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
 from tqdm import trange
 
-from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences
+from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles
 
 EpisodeStep = namedtuple('EpisodeStep', ['state', 'action'])
 Trajectory = namedtuple('Trajectory', ['terminal_state', 'traj_prob'])
@@ -369,6 +369,8 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         for traj in trajectories:
             d_traj.append(''.join(list(traj.terminal_state.state)) + traj.terminal_state.action)
             d_traj_probs.append(traj.traj_prob)
+        _, valid_vec_samp = canonical_smiles(d_traj)
+        valid_vec_samp = torch.tensor(valid_vec_samp).view(-1, 1).float().to(self.device)
         d_traj, _ = pad_sequences(d_traj)
         d_samp, _ = seq2tensor(d_traj, tokens=get_default_tokens())
         d_samp = torch.from_numpy(d_samp).long().to(self.device)
@@ -377,10 +379,11 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             # D_demo processing
             demo_states, demo_actions = self.demo_gen_data.random_training_set()
             d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)
-            d_demo_out = self.model(d_demo)
+            valid_vec_demo = torch.ones(d_demo.shape[0]).view(-1, 1).float().to(self.device)
+            d_demo_out = self.model([d_demo, valid_vec_demo])
 
             # D_samp processing
-            d_samp_out = self.model(d_samp)
+            d_samp_out = self.model([d_samp, valid_vec_samp])
             d_out_combined = torch.cat([d_samp_out, d_demo_out], dim=0)
             if d_samp_out.shape[0] < 1000:
                 d_samp_out = d_out_combined
@@ -397,8 +400,8 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             hidden = self.agent_net_init_func(d_samp_demo.shape[0], **self.agent_net_init_args)
             outputs = self.agent_net([d_samp_demo] + hidden)
             reps = outputs[0].detach()  # shape structure: (seq. len, batch, d_model)
-            reps = reps[-1, :, :]
-            reps = reps / torch.norm(reps, dim=-1, keepdim=True)  # select last rep and normalize vectors
+            reps = reps[-1, :, :]  # select last rep
+            reps = reps / torch.norm(reps, dim=-1, keepdim=True)  # normalize vectors
             sim_values = reps @ reps.t()  # cosine similarity
             xx, yy = torch.meshgrid(d_out_combined.view(-1, ), d_out_combined.view(-1, ))
             sqr_diffs = torch.pow(xx - yy, 2)

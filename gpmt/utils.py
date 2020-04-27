@@ -150,16 +150,19 @@ def canonical_smiles(smiles, sanitize=True, throw_warning=False):
         sanitize_smiles(smiles, canonical=True).
     """
     new_smiles = []
+    valid_vec = []
     for sm in smiles:
         try:
             mol = Chem.MolFromSmiles(sm, sanitize=sanitize)
             new_smiles.append(Chem.MolToSmiles(mol))
+            valid_vec.append(1)
         except:
             if throw_warning:
                 warnings.warn(sm + ' can not be canonized: invalid '
                                    'SMILES string!', UserWarning)
             new_smiles.append('')
-    return new_smiles
+            valid_vec.append(0)
+    return new_smiles, valid_vec
 
 
 def save_smi_to_file(filename, smiles, unique=True):

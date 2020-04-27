@@ -131,7 +131,6 @@ class GpmtPretrain(Trainer):
 
         # pred_loss functions
         criterion = nn.CrossEntropyLoss(ignore_index=gen_data.char2idx[gen_data.pad_symbol])
-        # criterion = LabelSmoothing(gen_data.n_characters, gen_data.char2idx[gen_data.pad_symbol], 0.1)
 
         # sub-nodes of sim data resource
         loss_lst = []
@@ -150,143 +149,93 @@ class GpmtPretrain(Trainer):
         try:
             # Main training loop
             tb_idx = {'train': Count(), 'val': Count(), 'test': Count()}
+            epoch_losses = []
+            epoch_scores = []
             for epoch in range(n_epochs):
-                if terminate_training:
-                    print("Terminating training...")
-                    break
-                for phase in ["train"]:  # , "val" if is_hsearch else "test"]:
-                    if phase == "train":
-                        print("Training....")
-                        # Training mode
-                        model.train()
-                    else:
-                        print("Validation...")
-                        # Evaluation mode
-                        model.eval()
+                phase = 'train'
 
-                    epoch_losses = []
-                    epoch_scores = []
+                # Iterate through mini-batches
+                # with TBMeanTracker(tb_writer, 10) as tracker:
+                with grad_stats:
+                    for b in trange(0, num_batches, desc=f'{phase} in progress...'):
+                        inputs, labels = gen_data.random_training_set()
+                        batch_size, seq_len = inputs.shape[:2]
+                        optimizer.zero_grad()
 
-                    # Iterate through mini-batches
-                    # with TBMeanTracker(tb_writer, 10) as tracker:
-                    with grad_stats:
-                        for b in trange(0, num_batches, desc=f'{phase} in progress...'):
-                            inputs, labels = gen_data.random_training_set()
-                            batch_size, seq_len = inputs.shape[:2]
-                            optimizer.zero_grad()
+                        # track history if only in train
+                        with torch.set_grad_enabled(phase == "train"):
+                            # Create hidden states for each layer
+                            hidden_states = []
+                            for _ in range(rnn_args['num_layers']):
+                                hidden = init_hidden(num_layers=1, batch_size=batch_size,
+                                                     hidden_size=rnn_args['hidden_size'],
+                                                     num_dir=rnn_args['num_dir'], dvc=rnn_args['device'])
+                                if rnn_args['has_cell']:
+                                    cell = init_cell(num_layers=1, batch_size=batch_size,
+                                                     hidden_size=rnn_args['hidden_size'],
+                                                     num_dir=rnn_args['num_dir'], dvc=rnn_args['device'])
+                                else:
+                                    cell = None
+                                if rnn_args['has_stack']:
+                                    stack = init_stack(batch_size, rnn_args['stack_width'],
+                                                       rnn_args['stack_depth'], dvc=rnn_args['device'])
+                                else:
+                                    stack = None
+                                hidden_states.append((hidden, cell, stack))
+                            # forward propagation
+                            outputs = model([inputs] + hidden_states)
+                            predictions = outputs[0]
+                            predictions = predictions.permute(1, 0, -1)
+                            predictions = predictions.contiguous().view(-1, predictions.shape[-1])
+                            labels = labels.contiguous().view(-1)
 
-                            # track history if only in train
-                            with torch.set_grad_enabled(phase == "train"):
-                                # Create hidden states for each layer
-                                hidden_states = []
-                                for _ in range(rnn_args['num_layers']):
-                                    hidden = init_hidden(num_layers=1, batch_size=batch_size,
-                                                         hidden_size=rnn_args['hidden_size'],
-                                                         num_dir=rnn_args['num_dir'], dvc=rnn_args['device'])
-                                    if rnn_args['has_cell']:
-                                        cell = init_cell(num_layers=1, batch_size=batch_size,
-                                                         hidden_size=rnn_args['hidden_size'],
-                                                         num_dir=rnn_args['num_dir'], dvc=rnn_args['device'])
-                                    else:
-                                        cell = None
-                                    if rnn_args['has_stack']:
-                                        stack = init_stack(batch_size, rnn_args['stack_width'],
-                                                           rnn_args['stack_depth'], dvc=rnn_args['device'])
-                                    else:
-                                        stack = None
-                                    hidden_states.append((hidden, cell, stack))
-                                # forward propagation
-                                outputs = model([inputs] + hidden_states)
-                                predictions = outputs[0]
-                                predictions = predictions.permute(1, 0, -1)
-                                predictions = predictions.contiguous().view(-1, predictions.shape[-1])
-                                labels = labels.contiguous().view(-1)
+                            # calculate loss
+                            loss = criterion(predictions, labels)
 
-                                # calculate loss
-                                loss = criterion(predictions, labels)
+                        # metrics
+                        eval_dict = {}
+                        score = GpmtPretrain.evaluate(eval_dict, predictions, labels)
 
-                            # fail fast
-                            if str(loss.item()) == "nan":
-                                terminate_training = True
-                                break
+                        # TBoard info
+                        # tracker.track("%s/loss" % phase, loss.item(), tb_idx[phase].IncAndGet())
+                        # tracker.track("%s/score" % phase, score, tb_idx[phase].i)
+                        # for k in eval_dict:
+                        #     tracker.track('{}/{}'.format(phase, k), eval_dict[k], tb_idx[phase].i)
 
-                            # metrics
-                            eval_dict = {}
-                            score = GpmtPretrain.evaluate(eval_dict, predictions, labels)
+                        # backward pass
+                        loss.backward()
+                        optimizer.step()
 
-                            # TBoard info
-                            # tracker.track("%s/loss" % phase, loss.item(), tb_idx[phase].IncAndGet())
-                            # tracker.track("%s/score" % phase, score, tb_idx[phase].i)
-                            # for k in eval_dict:
-                            #     tracker.track('{}/{}'.format(phase, k), eval_dict[k], tb_idx[phase].i)
+                        # for epoch stats
+                        epoch_losses.append(loss.item())
 
-                            if phase == "train":
-                                # backward pass
-                                loss.backward()
-                                optimizer.step()
+                        # for sim data resource
+                        train_scores_lst.append(score)
+                        loss_lst.append(loss.item())
 
-                                # for epoch stats
-                                epoch_losses.append(loss.item())
+                        # for epoch stats
+                        epoch_scores.append(score)
 
-                                # for sim data resource
-                                train_scores_lst.append(score)
-                                loss_lst.append(loss.item())
-
-                                print("\t{}: Epoch={}/{}, batch={}/{}, "
-                                      "pred_loss={:.4f}, accuracy: {:.2f}, sample: {}".format(time_since(start),
-                                                                                              epoch + 1, n_epochs,
-                                                                                              b + 1,
-                                                                                              num_batches,
-                                                                                              loss.item(),
-                                                                                              eval_dict['accuracy'],
-                                                                                              generate_smiles(
-                                                                                                  generator=model,
-                                                                                                  gen_data=gen_data,
-                                                                                                  init_args=rnn_args,
-                                                                                                  num_samples=1)
-                                                                                              ))
-                            else:
-                                # for epoch stats
-                                epoch_scores.append(score)
-
-                                # for sim data resource
-                                scores_lst.append(score)
-                                for m in eval_dict:
-                                    if m in metrics_dict:
-                                        metrics_dict[m].append(eval_dict[m])
-                                    else:
-                                        metrics_dict[m] = [eval_dict[m]]
-
-                                print("\n{}: Epoch={}/{}, batch={}/{}, "
-                                      "evaluation results= {}, accuracy={}".format(time_since(start),
-                                                                                   epoch + 1, n_epochs, b + 1,
-                                                                                   num_batches, eval_dict, score))
-                    # End of mini=batch iterations.
-
-                    if phase == "train":
-                        ep_loss = np.nanmean(epoch_losses)
-                        e_avg.update(ep_loss)
-                        if epoch % epoch_ckpt[0] == 0:
-                            if e_avg.value > epoch_ckpt[1]:
-                                terminate_training = True
-                        print("\nPhase: {}, avg task pred_loss={:.4f}, ".format(phase, np.nanmean(epoch_losses)))
-                        # scheduler.step()
-                    else:
-                        mean_score = np.mean(epoch_scores)
-                        if best_score < mean_score:
-                            best_score = mean_score
-                            best_model_wts = copy.deepcopy(model.state_dict())
-                            best_epoch = epoch
+                        print("\t{}: Epoch={}/{}, batch={}/{}, "
+                              "pred_loss={:.4f}, accuracy: {:.2f}, sample: {}".format(time_since(start),
+                                                                                      epoch + 1, n_epochs,
+                                                                                      b + 1,
+                                                                                      num_batches,
+                                                                                      loss.item(),
+                                                                                      eval_dict['accuracy'],
+                                                                                      generate_smiles(
+                                                                                          generator=model,
+                                                                                          gen_data=gen_data,
+                                                                                          init_args=rnn_args,
+                                                                                          num_samples=1)
+                                                                                      ))
+                # End of mini=batch iterations.
         except RuntimeError as e:
             print(str(e))
 
         duration = time.time() - start
         print('\nModel training duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
-        try:
-            model.load_state_dict(best_model_wts)
-        except RuntimeError as e:
-            print(str(e))
-        return {'model': model, 'score': best_score, 'epoch': best_epoch}
+        return {'model': model, 'score': np.mean(epoch_scores), 'epoch': n_epochs}
 
     @staticmethod
     def evaluate_model(*args, **kwargs):
@@ -389,7 +338,7 @@ def main(flags):
 
 def default_hparams(args):
     return {
-        'unit_type': 'lstm',
+        'unit_type': 'gru',
         'num_layers': 2,
         'dropout': 0.1,
         'd_model': 1500,

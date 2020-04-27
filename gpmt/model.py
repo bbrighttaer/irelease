@@ -569,21 +569,21 @@ class RewardNetRNN(nn.Module):
             self.base_rnn = nn.GRU(input_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
             self.post_rnn = nn.GRUCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
         self.linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
-        self.reward_net = nn.Sequential(nn.LayerNorm(hidden_size),
-                                        nn.Linear(self.hidden_size, 1))
+        self.reward_net = nn.Sequential(nn.LayerNorm(hidden_size + 1),
+                                        nn.Linear(self.hidden_size + 1, 1))
 
-    def forward(self, x):
+    def forward(self, inp):
         """
         Evaluates the input to determine its reward.
 
         Argument
-        :param x: tensor
-            Input from encoder of shape (seq_len, batch_size, embed_dim)
+        :param inp: list / tuple
+           [0] Input from encoder of shape (seq_len, batch_size, embed_dim)
+           [1] SMILES validity flag
         :return: tensor
             Reward of shape (batch_size, 1)
         """
-        if isinstance(x, list):
-            x = x[0]
+        x = inp[0]
         seq_len, batch_size = x.shape[:2]
 
         # Construct initial states
@@ -607,7 +607,9 @@ class RewardNetRNN(nn.Module):
             x_ = x_.permute(1, 2, 0)
             ctx = x_.bmm(wts).squeeze(dim=2)
             hidden_ = self.post_rnn(ctx, hidden_)
-        reward = self.reward_net(hidden_[0] if self.has_cell else hidden_)
+        rw_x = hidden_[0] if self.has_cell else hidden_
+        rw_x = torch.cat([rw_x, inp[-1]], dim=-1)
+        reward = self.reward_net(rw_x)
         return reward
 
 
