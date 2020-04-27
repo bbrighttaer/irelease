@@ -39,7 +39,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 1
     use_cuda = True
     device = 'cuda'
     torch.cuda.set_device(dvc_id)
@@ -116,6 +116,7 @@ class IReLeaSE(Trainer):
                                CriticRNN(hparams['d_model'], hparams['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
                                          num_layers=hparams['critic_params']['num_layers'])).share_memory()
+        critic = critic.to(f'{device}:{dvc_id}')
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         # drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
         #                     initial_states_func=agent_net_hidden_states_func,
