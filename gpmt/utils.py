@@ -10,8 +10,11 @@ import torch
 import pickle
 from rdkit import Chem
 from rdkit import DataStructs
+from rdkit import RDLogger
 from sklearn.model_selection import KFold, StratifiedKFold
 
+lg = RDLogger.logger()
+lg.setLevel(RDLogger.CRITICAL)
 
 def get_fp(smiles):
     fp = []
