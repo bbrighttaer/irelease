@@ -12,6 +12,7 @@ from rdkit import Chem
 from rdkit import DataStructs
 from rdkit import RDLogger
 from sklearn.model_selection import KFold, StratifiedKFold
+from tqdm import trange
 
 lg = RDLogger.logger()
 lg.setLevel(RDLogger.CRITICAL)
@@ -569,7 +570,7 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
 
     try:
         # Start sampling
-        for i in range(max_len - 1):
+        for i in trange(max_len - 1, desc='Generating SMILES...'):
             if gen_type == 'rnn':
                 outputs = generator([inp] + hidden_states)
                 output, hidden_states = outputs[0], outputs[1:]
@@ -604,7 +605,7 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
     # Remove characters after end tokens
     string_samples = []
     new_samples = np.array(new_samples)
-    for i in range(num_samples):
+    for i in trange(num_samples, desc='Processing SMILES...'):
         sample = list(new_samples[:, i])
         if end_token in sample:
             end_token_idx = sample.index(end_token)

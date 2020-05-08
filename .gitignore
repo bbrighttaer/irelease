@@ -65,6 +65,9 @@ cmake-build-*/
 # IntelliJ
 out/
 
+# Tensorboard stuff
+irelease/
+
 # mpeltonen/sbt-idea plugin
 .idea_modules/
 

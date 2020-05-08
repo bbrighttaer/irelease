@@ -18,6 +18,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.multiprocessing as mp
+from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
@@ -41,12 +42,11 @@ seeds = [1]
 if torch.cuda.is_available():
     dvc_id = 1
     use_cuda = True
-    device = 'cuda'
+    device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
 else:
     device = 'cpu'
     use_cuda = None
-    dvc_id = 0
 
 
 def agent_net_hidden_states_func(batch_size, num_layers, hidden_size, stack_depth, stack_width, unit_type):
@@ -56,13 +56,13 @@ def agent_net_hidden_states_func(batch_size, num_layers, hidden_size, stack_dept
 
 def get_initial_states(batch_size, hidden_size, num_layers, stack_depth, stack_width, unit_type):
     hidden = init_hidden(num_layers=num_layers, batch_size=batch_size, hidden_size=hidden_size, num_dir=1,
-                         dvc=f'{device}:{dvc_id}')
+                         dvc=device)
     if unit_type == 'lstm':
         cell = init_cell(num_layers=num_layers, batch_size=batch_size, hidden_size=hidden_size, num_dir=1,
-                         dvc=f'{device}:{dvc_id}')
+                         dvc=device)
     else:
         cell = None
-    stack = init_stack(batch_size, stack_width, stack_depth, dvc=f'{device}:{dvc_id}')
+    stack = init_stack(batch_size, stack_width, stack_depth, dvc=device)
     return hidden, cell, stack
 
 
@@ -95,7 +95,7 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True)).share_memory()
-        agent_net = agent_net.to(f'{device}:{dvc_id}')
+        agent_net = agent_net.to(device)
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
         probs_reg = StateActionProbRegistry()
@@ -111,12 +111,12 @@ class IReLeaSE(Trainer):
                             initial_state_args=init_state_args,
                             apply_softmax=True,
                             probs_registry=probs_reg,
-                            device=f'{device}:{dvc_id}')
+                            device=device)
         critic = nn.Sequential(encoder,
                                CriticRNN(hparams['d_model'], hparams['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
                                          num_layers=hparams['critic_params']['num_layers'])).share_memory()
-        critic = critic.to(f'{device}:{dvc_id}')
+        critic = critic.to(device)
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         # drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
         #                     initial_states_func=agent_net_hidden_states_func,
@@ -125,13 +125,13 @@ class IReLeaSE(Trainer):
         #                                          'stack_depth': hparams['agent_params']['stack_depth'],
         #                                          'stack_width': hparams['agent_params']['stack_width'],
         #                                          'unit_type': hparams['agent_params']['unit_type']},
-        #                     device=f'{device}:{dvc_id}',
+        #                     device=device,
         #                     gamma=hparams['gamma'])
         drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
                       critic=critic, critic_opt=optimizer_critic_net,
                       initial_states_func=agent_net_hidden_states_func,
                       initial_states_args=init_state_args,
-                      device=f'{device}:{dvc_id}',
+                      device=device,
                       gamma=hparams['gamma'],
                       gae_lambda=hparams['gae_lambda'],
                       ppo_eps=hparams['ppo_eps'],
@@ -146,9 +146,9 @@ class IReLeaSE(Trainer):
                                                 bidirectional=True,
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type'])).share_memory()
-        reward_net = reward_net.to(f'{device}:{dvc_id}')
+        reward_net = reward_net.to(device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=gen_data.all_characters,
-                                         device=f'{device}:{dvc_id}',
+                                         device=device,
                                          mc_max_sims=hparams['monte_carlo_N'],
                                          expert_func=None)
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
@@ -158,7 +158,7 @@ class IReLeaSE(Trainer):
                                           agent_net=agent_net,
                                           agent_net_init_func=agent_net_hidden_states_func,
                                           agent_net_init_func_args=init_state_args,
-                                          device=f'{device}:{dvc_id}')
+                                          device=device)
 
         init_args = {'agent': agent,
                      'probs_reg': probs_reg,
@@ -174,7 +174,7 @@ class IReLeaSE(Trainer):
                                   'stack_width': hparams['agent_params']['stack_width'],
                                   'has_stack': has_stack,
                                   'has_cell': hparams['agent_params']['unit_type'] == 'lstm',
-                                  'device': f'{device}:{dvc_id}'}}
+                                  'device': device}}
         return init_args
 
     @staticmethod
@@ -197,6 +197,7 @@ class IReLeaSE(Trainer):
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
               tb_writer=None, n_procs=2, is_hsearch=False):
+        tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
         drl_algorithm = init_args['drl_alg']
@@ -212,7 +213,6 @@ class IReLeaSE(Trainer):
         if agent_net_path and agent_net_name:
             agent.model.load_state_dict(IReLeaSE.load_model(agent_net_path, agent_net_name))
 
-        tb_writer = None  # tb_writer()
         start = time.time()
 
         # Begin simulation and training
@@ -232,57 +232,65 @@ class IReLeaSE(Trainer):
             procs_list.append(proc)
 
         try:
-            while True:
-                train_entry = queue.get()
-                if isinstance(train_entry, TotalReward):
-                    reward = train_entry.reward
-                    if reward:
-                        done_episodes += 1
-                        total_rewards.append(reward)
-                        mean_rewards = float(np.mean(total_rewards[-100:]))
-                        print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
-                              f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
-                        if mean_rewards >= score_threshold:
-                            best_model_wts = [copy.deepcopy(agent.model.state_dict()),
-                                              copy.deepcopy(reward_func.model.state_dict())]
-                            best_score = mean_rewards
-                            score_threshold = best_score
-                    continue
+            with TBMeanTracker(tb_writer, 1) as tracker:
+                while True:
+                    train_entry = queue.get()
+                    if isinstance(train_entry, TotalReward):
+                        reward = train_entry.reward
+                        if reward:
+                            done_episodes += 1
+                            total_rewards.append(reward)
+                            mean_rewards = float(np.mean(total_rewards[-100:]))
+                            tracker.track('mean_total_reward', mean_rewards, step_idx)
+                            tracker.track('total_reward', reward, step_idx)
+                            print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
+                                  f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
+                            if mean_rewards >= score_threshold:
+                                best_model_wts = [copy.deepcopy(agent.model.state_dict()),
+                                                  copy.deepcopy(drl_algorithm.critic.state_dict()),
+                                                  copy.deepcopy(reward_func.model.state_dict())]
+                                best_score = mean_rewards
+                                score_threshold = best_score
+                        continue
 
-                if isinstance(train_entry, Trajectory):
-                    trajectories.append(train_entry)
-                    continue
+                    if isinstance(train_entry, Trajectory):
+                        trajectories.append(train_entry)
+                        continue
 
-                exp_trajectories.append(train_entry)  # for ExperienceFirstLast objects
-                step_idx += 1
-                batch_episodes += 1
+                    exp_trajectories.append(train_entry)  # for ExperienceFirstLast objects
+                    step_idx += 1
+                    batch_episodes += 1
 
-                if batch_episodes < episodes_to_train:
-                    continue
+                    if batch_episodes < episodes_to_train:
+                        continue
 
-                # Train models
-                print('Fitting models...')
-                irl_loss = irl_algorithm.fit(trajectories)
-                rl_loss = drl_algorithm.fit(exp_trajectories)
-                samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
-                                          num_samples=2)
-                print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
+                    # Train models
+                    print('Fitting models...')
+                    irl_loss = irl_algorithm.fit(trajectories)
+                    rl_loss = drl_algorithm.fit(exp_trajectories)
+                    samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
+                                              num_samples=2)
+                    print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
+                    tracker.track('reward_loss', irl_loss, step_idx)
+                    tracker.track('critic_loss', rl_loss[0], step_idx)
+                    tracker.track('agent_loss', rl_loss[1], step_idx)
 
-                if batch_episodes == n_episodes:
-                    print('Training completed!')
-                    break
+                    if batch_episodes == n_episodes:
+                        print('Training completed!')
+                        break
 
-                # Reset
-                batch_episodes = 0
-                trajectories.clear()
-                exp_trajectories.clear()
+                    # Reset
+                    batch_episodes = 0
+                    trajectories.clear()
+                    exp_trajectories.clear()
         finally:
             for p in procs_list:
                 p.terminate()
                 p.join()
 
         return {'model': [agent.model.load_state_dict(best_model_wts[0]),
-                          reward_func.model.load_state_dict(best_model_wts[1])],
+                          drl_algorithm.critic.load_state_dict(best_model_wts[1]),
+                          reward_func.model.load_state_dict(best_model_wts[2])],
                 'score': best_score,
                 'epoch': step_idx}
 
@@ -298,7 +306,7 @@ class IReLeaSE(Trainer):
 
     @staticmethod
     def load_model(path, name):
-        return torch.load(os.path.join(path, name), map_location=torch.device(f'{device}:{dvc_id}'))
+        return torch.load(os.path.join(path, name), map_location=torch.device(device))
 
 
 TotalReward = namedtuple('TotalReward', field_names='reward')
@@ -333,7 +341,7 @@ def main(flags):
     hparam_search = None
 
     for seed in seeds:
-        summary_writer_creator = lambda: SummaryWriter(log_dir="tb_gpmt"
+        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease"
                                                                "/{}_{}_{}/".format(sim_label, seed, dt.now().strftime(
             "%Y_%m_%d__%H_%M_%S")))
 
@@ -367,7 +375,7 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 128,
+    return {'d_model': 1500,
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
@@ -384,9 +392,9 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
-                             'stack_width': 128,
-                             'stack_depth': 20,
+                             'num_layers': 2,
+                             'stack_width': 1500,
+                             'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
                              'optimizer__global__lr': 0.001},
@@ -409,7 +417,7 @@ if __name__ == '__main__':
                         help='File containing SMILES strings which are demonstrations of the required objective')
     parser.add_argument('--model_dir',
                         type=str,
-                        default=None,
+                        default='./model_dir',
                         help='Directory containing models')
     parser.add_argument('--pretrained_model',
                         type=str,

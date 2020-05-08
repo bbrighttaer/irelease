@@ -28,7 +28,7 @@ from tqdm import trange
 from gpmt.data import GeneratorData
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, StackedRNNLayerNorm, StackedRNNDropout
 from gpmt.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, init_hidden, init_cell, init_stack, \
-    generate_smiles, time_since, get_default_tokens
+    generate_smiles, time_since, get_default_tokens, canonical_smiles
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -38,12 +38,11 @@ seeds = [1]
 if torch.cuda.is_available():
     dvc_id = 0
     use_cuda = True
-    device = 'cuda'
+    device = f'cuda{dvc_id}'
     torch.cuda.set_device(dvc_id)
 else:
     device = 'cpu'
     use_cuda = None
-    dvc_id = 0
 
 
 class GpmtPretrain(Trainer):
@@ -83,7 +82,7 @@ class GpmtPretrain(Trainer):
         rnn_args = {'num_layers': hparams['num_layers'],
                     'hidden_size': hparams['d_model'],
                     'num_dir': 1,
-                    'device': f'{device}:{dvc_id}',
+                    'device': device,
                     'has_stack': has_stack,
                     'has_cell': hparams['unit_type'] == 'lstm',
                     'stack_width': hparams['stack_width'],
@@ -238,8 +237,26 @@ class GpmtPretrain(Trainer):
         return {'model': model, 'score': np.mean(epoch_scores), 'epoch': n_epochs}
 
     @staticmethod
-    def evaluate_model(*args, **kwargs):
-        super().evaluate_model(*args, **kwargs)
+    @torch.no_grad()
+    def evaluate_model(model, gen_data, rnn_args, sim_data_node=None, num_smiles=1000):
+        start = time.time()
+        model.eval()
+
+        # Samples SMILES
+        samples = generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
+                                  num_samples=num_smiles, is_train=False)
+        valid_smiles = canonical_smiles(samples)
+        print(f'Percentage of valid SMILES = {float(len(valid_smiles))/float(len(samples))}')
+
+        # sub-nodes of sim data resource
+        smiles_node = DataNode(label="smiles", data=samples)
+
+        # add sim data nodes to parent node
+        if sim_data_node:
+            sim_data_node.data = [smiles_node]
+
+        duration = time.time() - start
+        print('\nModel evaluation duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
 
     @staticmethod
     def save_model(model, path, name):
@@ -249,11 +266,13 @@ class GpmtPretrain(Trainer):
 
     @staticmethod
     def load_model(path, name):
-        return torch.load(os.path.join(path, name), map_location=torch.device(f'{device}:{dvc_id}'))
+        return torch.load(os.path.join(path, name), map_location=torch.device(device))
 
 
 def main(flags):
     sim_label = 'GPMT-pretraining-Stack-RNN'
+    if flags.eval:
+        sim_label += '_eval'
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -321,16 +340,20 @@ def main(flags):
             hyper_params = default_hparams(flags)
             model, optimizer, gen_data, rnn_args = trainer.initialize(hyper_params,
                                                                       gen_data=trainer.data_provider(k, flags)['train'])
-            results = trainer.train(model=model,
-                                    optimizer=optimizer,
-                                    gen_data=gen_data,
-                                    rnn_args=rnn_args,
-                                    n_iters=1500000,
-                                    sim_data_node=data_node,
-                                    tb_writer=summary_writer_creator)
-            trainer.save_model(results['model'], flags.model_dir,
-                               name=f'gpmt-pretrained_stack-rnn_{hyper_params["unit_type"]}_'
-                                    f'{date_label}_{results["score"]}_{results["epoch"]}')
+            if flags.eval:
+                model.load_state_dict(trainer.load_model(flags.model_dir, flags.eval_model_name))
+                trainer.evaluate_model(model, gen_data, rnn_args, data_node)
+            else:
+                results = trainer.train(model=model,
+                                        optimizer=optimizer,
+                                        gen_data=gen_data,
+                                        rnn_args=rnn_args,
+                                        n_iters=1500000,
+                                        sim_data_node=data_node,
+                                        tb_writer=summary_writer_creator)
+                trainer.save_model(results['model'], flags.model_dir,
+                                   name=f'gpmt-pretrained_stack-rnn_{hyper_params["unit_type"]}_'
+                                        f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
@@ -389,13 +412,13 @@ if __name__ == '__main__':
                         type=str,
                         default="bayopt_search",
                         help="Hyperparameter search algorithm to use. One of [bayopt_search, random_search]")
-    # parser.add_argument("--eval",
-    #                     action="store_true",
-    #                     help="If true, a saved model is loaded and evaluated")
-    # parser.add_argument("--eval_model_name",
-    #                     default=None,
-    #                     type=str,
-    #                     help="The filename of the model to be loaded from the directory specified in --model_dir")
+    parser.add_argument("--eval",
+                        action="store_true",
+                        help="If true, a saved model is loaded and evaluated")
+    parser.add_argument("--eval_model_name",
+                        default=None,
+                        type=str,
+                        help="The filename of the model to be loaded from the directory specified in --model_dir")
 
     args = parser.parse_args()
     flags = Flags()
