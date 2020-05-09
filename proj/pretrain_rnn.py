@@ -38,7 +38,7 @@ seeds = [1]
 if torch.cuda.is_available():
     dvc_id = 0
     use_cuda = True
-    device = f'cuda{dvc_id}'
+    device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
 else:
     device = 'cpu'
@@ -234,7 +234,7 @@ class GpmtPretrain(Trainer):
 
         duration = time.time() - start
         print('\nModel training duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
-        return {'model': model, 'score': np.mean(epoch_scores), 'epoch': n_epochs}
+        return {'model': model, 'score': round(np.mean(epoch_scores), 3), 'epoch': n_epochs}
 
     @staticmethod
     @torch.no_grad()
@@ -245,11 +245,19 @@ class GpmtPretrain(Trainer):
         # Samples SMILES
         samples = generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
                                   num_samples=num_smiles, is_train=False)
-        valid_smiles = canonical_smiles(samples)
-        print(f'Percentage of valid SMILES = {float(len(valid_smiles))/float(len(samples))}')
+        smiles, valid_vec = canonical_smiles(samples)
+        valid_smiles = []
+        for idx, sm in enumerate(smiles):
+            if len(sm) > 0:
+                valid_smiles.append(sm)
+        v = len(valid_smiles)
+        valid_smiles = list(set(valid_smiles))
+        print(f'Percentage of valid SMILES = {float(len(valid_smiles))/float(len(samples)):.2f}, '
+              f'Num. samples = {len(samples)}, Num. valid = {len(valid_smiles)}, '
+              f'Num. requested = {num_smiles}, Num. dups = {v - len(valid_smiles)}')
 
         # sub-nodes of sim data resource
-        smiles_node = DataNode(label="smiles", data=samples)
+        smiles_node = DataNode(label="smiles", data=valid_smiles)
 
         # add sim data nodes to parent node
         if sim_data_node:
@@ -342,7 +350,7 @@ def main(flags):
                                                                       gen_data=trainer.data_provider(k, flags)['train'])
             if flags.eval:
                 model.load_state_dict(trainer.load_model(flags.model_dir, flags.eval_model_name))
-                trainer.evaluate_model(model, gen_data, rnn_args, data_node)
+                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=100)
             else:
                 results = trainer.train(model=model,
                                         optimizer=optimizer,
