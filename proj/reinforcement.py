@@ -17,7 +17,6 @@ from datetime import datetime as dt
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.multiprocessing as mp
 from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
@@ -94,7 +93,7 @@ class IReLeaSE(Trainer):
                                   StackRNNLinear(out_dim=gen_data.n_characters,
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
-                                                 bias=True)).share_memory()
+                                                 bias=True))
         agent_net = agent_net.to(device)
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=gen_data.all_characters)
@@ -115,7 +114,7 @@ class IReLeaSE(Trainer):
         critic = nn.Sequential(encoder,
                                CriticRNN(hparams['d_model'], hparams['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
-                                         num_layers=hparams['critic_params']['num_layers'])).share_memory()
+                                         num_layers=hparams['critic_params']['num_layers']))
         critic = critic.to(device)
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         # drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
@@ -145,7 +144,7 @@ class IReLeaSE(Trainer):
                                                 num_layers=hparams['reward_params']['num_layers'],
                                                 bidirectional=True,
                                                 dropout=hparams['dropout'],
-                                                unit_type=hparams['reward_params']['unit_type'])).share_memory()
+                                                unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=gen_data.all_characters,
                                          device=device,
@@ -223,70 +222,64 @@ class IReLeaSE(Trainer):
         exp_trajectories = []
         step_idx = 0
 
-        # Parallel environments
-        queue = mp.Queue(maxsize=n_procs)
-        procs_list = []
-        for _ in range(n_procs):
-            proc = mp.Process(target=gather_exps, args=(agent, reward_func, probs_reg, gamma, queue))
-            proc.start()
-            procs_list.append(proc)
+        env = MoleculeEnv(actions=get_default_tokens(), reward_func=reward_func)
+        exp_source = ExperienceSourceFirstLast(env, agent, gamma, steps_count=1, steps_delta=1)
+        traj_prob = 1.
+        exp_traj = []
 
-        try:
-            with TBMeanTracker(tb_writer, 1) as tracker:
-                while True:
-                    train_entry = queue.get()
-                    if isinstance(train_entry, TotalReward):
-                        reward = train_entry.reward
-                        if reward:
-                            done_episodes += 1
-                            total_rewards.append(reward)
-                            mean_rewards = float(np.mean(total_rewards[-100:]))
-                            tracker.track('mean_total_reward', mean_rewards, step_idx)
-                            tracker.track('total_reward', reward, step_idx)
-                            print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
-                                  f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
-                            if mean_rewards >= score_threshold:
-                                best_model_wts = [copy.deepcopy(agent.model.state_dict()),
-                                                  copy.deepcopy(drl_algorithm.critic.state_dict()),
-                                                  copy.deepcopy(reward_func.model.state_dict())]
-                                best_score = mean_rewards
-                                score_threshold = best_score
-                        continue
+        with TBMeanTracker(tb_writer, 1) as tracker:
+            for step_idx, exp in tqdm(enumerate(exp_source)):
+                exp_traj.append(exp)
+                traj_prob *= probs_reg.get(list(exp.state), exp.action)
 
-                    if isinstance(train_entry, Trajectory):
-                        trajectories.append(train_entry)
-                        continue
-
-                    exp_trajectories.append(train_entry)  # for ExperienceFirstLast objects
-                    step_idx += 1
+                if exp.last_state is None:
+                    trajectories.append(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action),
+                                                   traj_prob=traj_prob))
+                    exp_trajectories.append(exp_traj)  # for ExperienceFirstLast objects
+                    exp_traj = []
+                    traj_prob = 1.
+                    probs_reg.clear()
                     batch_episodes += 1
 
-                    if batch_episodes < episodes_to_train:
-                        continue
+                new_rewards = exp_source.pop_total_rewards()
+                if new_rewards:
+                    reward = new_rewards[0]
+                    done_episodes += 1
+                    total_rewards.append(reward)
+                    mean_rewards = float(np.mean(total_rewards[-100:]))
+                    tracker.track('mean_total_reward', mean_rewards, step_idx)
+                    tracker.track('total_reward', reward, step_idx)
+                    print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
+                          f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
+                    if mean_rewards >= score_threshold:
+                        best_model_wts = [copy.deepcopy(agent.model.state_dict()),
+                                          copy.deepcopy(drl_algorithm.critic.state_dict()),
+                                          copy.deepcopy(reward_func.model.state_dict())]
+                        best_score = mean_rewards
+                        score_threshold = best_score
 
-                    # Train models
-                    print('Fitting models...')
-                    irl_loss = irl_algorithm.fit(trajectories)
-                    rl_loss = drl_algorithm.fit(exp_trajectories)
-                    samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
-                                              num_samples=2)
-                    print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
-                    tracker.track('reward_loss', irl_loss, step_idx)
-                    tracker.track('critic_loss', rl_loss[0], step_idx)
-                    tracker.track('agent_loss', rl_loss[1], step_idx)
+                if batch_episodes < episodes_to_train:
+                    continue
 
-                    if batch_episodes == n_episodes:
-                        print('Training completed!')
-                        break
+                # Train models
+                print('Fitting models...')
+                irl_loss = irl_algorithm.fit(trajectories)
+                rl_loss = drl_algorithm.fit(exp_trajectories)
+                samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
+                                          num_samples=2)
+                print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
+                tracker.track('reward_loss', irl_loss, step_idx)
+                tracker.track('critic_loss', rl_loss[0], step_idx)
+                tracker.track('agent_loss', rl_loss[1], step_idx)
 
-                    # Reset
-                    batch_episodes = 0
-                    trajectories.clear()
-                    exp_trajectories.clear()
-        finally:
-            for p in procs_list:
-                p.terminate()
-                p.join()
+                if batch_episodes == n_episodes:
+                    print('Training completed!')
+                    break
+
+                # Reset
+                batch_episodes = 0
+                trajectories.clear()
+                exp_trajectories.clear()
 
         return {'model': [agent.model.load_state_dict(best_model_wts[0]),
                           drl_algorithm.critic.load_state_dict(best_model_wts[1]),
@@ -310,26 +303,6 @@ class IReLeaSE(Trainer):
 
 
 TotalReward = namedtuple('TotalReward', field_names='reward')
-
-
-def gather_exps(agent, reward_func, probs_reg, gamma, queue):
-    env = MoleculeEnv(actions=get_default_tokens(), reward_func=reward_func)
-    exp_source = ExperienceSourceFirstLast(env, agent, gamma, steps_count=1, steps_delta=1)
-    traj_prob = 1.
-    exp_traj = []
-    for step_idx, exp in tqdm(enumerate(exp_source)):
-        exp_traj.append(exp)
-        traj_prob *= probs_reg.get(list(exp.state), exp.action)
-        if exp.last_state is None:
-            queue.put(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action), traj_prob=traj_prob))
-            queue.put(exp_traj)  # for ExperienceFirstLast objects
-            exp_traj = []
-            traj_prob = 1.
-            probs_reg.clear()
-        new_rewards = exp_source.pop_total_rewards()
-        if new_rewards:
-            queue.put(TotalReward(reward=np.mean(new_rewards)))
-
 
 def main(flags):
     sim_label = 'DeNovo-IReLeaSE'
@@ -411,7 +384,6 @@ def get_hparam_config(args):
 
 
 if __name__ == '__main__':
-    mp.set_start_method('spawn')
     parser = argparse.ArgumentParser(description='IRL for Structural Evolution of Small Molecules')
     parser.add_argument('-d', '--demo', dest='demo_file', type=str,
                         help='File containing SMILES strings which are demonstrations of the required objective')
