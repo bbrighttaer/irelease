@@ -243,8 +243,11 @@ class GpmtPretrain(Trainer):
         model.eval()
 
         # Samples SMILES
-        samples = generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
-                                  num_samples=num_smiles, is_train=False)
+        samples = []
+        step = 100
+        for num in range(min(step, num_smiles), num_smiles, step):
+            samples.extend(generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
+                                           num_samples=num, is_train=False))
         smiles, valid_vec = canonical_smiles(samples)
         valid_smiles = []
         for idx, sm in enumerate(smiles):
@@ -252,7 +255,7 @@ class GpmtPretrain(Trainer):
                 valid_smiles.append(sm)
         v = len(valid_smiles)
         valid_smiles = list(set(valid_smiles))
-        print(f'Percentage of valid SMILES = {float(len(valid_smiles))/float(len(samples)):.2f}, '
+        print(f'Percentage of valid SMILES = {float(len(valid_smiles)) / float(len(samples)):.2f}, '
               f'Num. samples = {len(samples)}, Num. valid = {len(valid_smiles)}, '
               f'Num. requested = {num_smiles}, Num. dups = {v - len(valid_smiles)}')
 
