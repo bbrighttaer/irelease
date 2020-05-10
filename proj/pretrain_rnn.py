@@ -247,7 +247,7 @@ class GpmtPretrain(Trainer):
         step = 100
         for num in range(min(step, num_smiles), num_smiles + 1, step):
             samples.extend(generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
-                                           num_samples=num, is_train=False))
+                                           num_samples=min(num, step), is_train=False))
         smiles, valid_vec = canonical_smiles(samples)
         valid_smiles = []
         for idx, sm in enumerate(smiles):
