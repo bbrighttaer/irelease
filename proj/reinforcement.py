@@ -39,7 +39,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -355,7 +355,7 @@ def default_hparams(args):
             'episodes_to_train': 1,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
-            'ppo_batch': 64,
+            'ppo_batch': 1,
             'ppo_epochs': 10,
             'reward_params': {'num_layers': 2,
                               'unit_type': 'gru',
