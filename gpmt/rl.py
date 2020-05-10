@@ -398,7 +398,8 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
                                       .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
             d_samp_demo = torch.cat([d_samp_padded, d_demo_padded])
             hidden = self.agent_net_init_func(d_samp_demo.shape[0], **self.agent_net_init_args)
-            outputs = self.agent_net([d_samp_demo] + hidden)
+            with torch.set_grad_enabled(False):
+                outputs = self.agent_net([d_samp_demo] + hidden)
             reps = outputs[0].detach()  # shape structure: (seq. len, batch, d_model)
             reps = reps[-1, :, :]  # select last rep
             reps = reps / torch.norm(reps, dim=-1, keepdim=True)  # normalize vectors

@@ -367,7 +367,7 @@ def main(flags):
             init_args = irelease.initialize(hyper_params, irelease.data_provider(k, flags)['train'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_procs=3,
+                                     n_procs=1,
                                      tb_writer=summary_writer_creator)
 
     # save simulation data resource tree to file.
@@ -379,14 +379,14 @@ def default_hparams(args):
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
-            'episodes_to_train': 10,
+            'episodes_to_train': 1,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 64,
             'ppo_epochs': 10,
             'reward_params': {'num_layers': 2,
                               'unit_type': 'gru',
-                              'batch_size': 64,
+                              'batch_size': 1,
                               'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
                               'optimizer__global__weight_decay': 0.0005,
