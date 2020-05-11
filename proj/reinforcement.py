@@ -115,7 +115,8 @@ class IReLeaSE(Trainer):
                             initial_states_func=agent_net_hidden_states_func,
                             initial_states_args=init_state_args,
                             device=device,
-                            gamma=hparams['gamma'])
+                            gamma=hparams['gamma'],
+                            reinforce_batch=hparams['reinforce_batch'])
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -281,6 +282,7 @@ class IReLeaSE(Trainer):
 
 TotalReward = namedtuple('TotalReward', field_names='reward')
 
+
 def main(flags):
     sim_label = 'DeNovo-IReLeaSE'
     sim_data = DataNode(label=sim_label)
@@ -325,7 +327,7 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 1500,
+    return {'d_model': 15,
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
@@ -334,16 +336,17 @@ def default_hparams(args):
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 10,
+            'reinforce_batch': 1,
             'reward_params': {'num_layers': 2,
                               'unit_type': 'gru',
-                              'batch_size': 1,
+                              'batch_size': 64,
                               'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 1500,
+                             'stack_width': 15,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
