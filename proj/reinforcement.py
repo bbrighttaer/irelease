@@ -116,7 +116,8 @@ class IReLeaSE(Trainer):
                             initial_states_args=init_state_args,
                             device=device,
                             gamma=hparams['gamma'],
-                            reinforce_batch=hparams['reinforce_batch'])
+                            reinforce_batch=hparams['reinforce_batch'],
+                            grad_clipping=hparams['reinforce_max_norm'])
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -342,6 +343,7 @@ def default_hparams(args):
             'ppo_batch': 1,
             'ppo_epochs': 10,
             'reinforce_batch': 1,
+            'reinforce_max_norm': 10,
             'reward_params': {'num_layers': 1,
                               'unit_type': 'gru',
                               'batch_size': 8,

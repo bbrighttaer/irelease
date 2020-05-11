@@ -147,7 +147,7 @@ def unpack_batch(trajs, gamma):
 
 class REINFORCE(DRLAlgorithm):
     def __init__(self, model, optimizer, initial_states_func, initial_states_args, gamma=0.97,
-                 reinforce_batch=1, device='cpu'):
+                 reinforce_batch=1, grad_clipping=None, device='cpu'):
         assert callable(initial_states_func)
         assert isinstance(initial_states_args, dict)
         self.model = model
@@ -157,6 +157,7 @@ class REINFORCE(DRLAlgorithm):
         self.initial_states_func = initial_states_func
         self.initial_states_args = initial_states_args
         self.reinforce_batch = reinforce_batch
+        self.grad_clipping = grad_clipping
 
     @torch.enable_grad()
     def fit(self, trajectories):
@@ -191,6 +192,9 @@ class REINFORCE(DRLAlgorithm):
             loss_max = -loss  # for maximization since pytorch optimizers minimize by default
             loss_max.backward(retain_graph=True)
             losses.append(loss.item())
+
+        if self.grad_clipping is not None:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clipping)
         self.optimizer.step()
         return np.mean(losses)
 
