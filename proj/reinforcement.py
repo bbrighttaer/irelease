@@ -302,8 +302,6 @@ class IReLeaSE(Trainer):
         return torch.load(os.path.join(path, name), map_location=torch.device(device))
 
 
-TotalReward = namedtuple('TotalReward', field_names='reward')
-
 def main(flags):
     sim_label = 'DeNovo-IReLeaSE'
     sim_data = DataNode(label=sim_label)
@@ -348,7 +346,7 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 1500,
+    return {'d_model': 15,
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
@@ -366,7 +364,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 1500,
+                             'stack_width': 15,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,

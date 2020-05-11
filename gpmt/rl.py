@@ -146,7 +146,8 @@ def unpack_batch(trajs, gamma):
 
 
 class REINFORCE(DRLAlgorithm):
-    def __init__(self, model, optimizer, initial_states_func, initial_states_args, gamma=0.97, device='cpu'):
+    def __init__(self, model, optimizer, initial_states_func, initial_states_args, gamma=0.97,
+                 reinforce_batch=1, device='cpu'):
         assert callable(initial_states_func)
         assert isinstance(initial_states_args, dict)
         self.model = model
@@ -155,6 +156,7 @@ class REINFORCE(DRLAlgorithm):
         self.gamma = gamma
         self.initial_states_func = initial_states_func
         self.initial_states_args = initial_states_args
+        self.reinforce_batch = reinforce_batch
 
     @torch.enable_grad()
     def fit(self, trajectories):
@@ -170,23 +172,31 @@ class REINFORCE(DRLAlgorithm):
         :param qvals: list
             The Q-values or Returns corresponding to each state.
         """
-        states, actions, qvals = unpack_batch(trajectories, self.gamma)
-        assert len(states) == len(actions) == len(qvals)
-        (states, states_len), actions, = _preprocess_states_actions(actions, states, self.device)
-        hidden_states = self.initial_states_func(states.shape[0], **self.initial_states_args)
-        qvals = torch.tensor(qvals).float().to(self.device).view(-1, 1)
+        states_data, actions_data, qvals = unpack_batch(trajectories, self.gamma)
+        assert len(states_data) == len(actions_data) == len(qvals)
+        (states_data, states_len_data), actions_data, = _preprocess_states_actions(actions_data, states_data,
+                                                                                   self.device)
         self.optimizer.zero_grad()
-        outputs = self.model([states] + hidden_states)
-        x = outputs[0]
-        states_len = states_len - 1
-        x = torch.cat([x[states_len[i], i, :].reshape(1, -1) for i in range(x.shape[1])], dim=0)
-        log_probs = torch.log_softmax(x, dim=-1)
-        loss = qvals * log_probs[range(qvals.shape[0]), actions]
-        loss = loss.mean()
-        loss_max = -loss  # for maximization since pytorch optimizers minimize by default
-        loss_max.backward()
+        loss_sum = 0
+        for batch_ofs in range(0, len(states_data), self.reinforce_batch):
+            states = states_data[batch_ofs:batch_ofs + self.reinforce_batch]
+            states_len = states_len_data[batch_ofs:batch_ofs + self.reinforce_batch]
+            actions = actions_data[batch_ofs:batch_ofs + self.reinforce_batch]
+
+            hidden_states = self.initial_states_func(states.shape[0], **self.initial_states_args)
+            qvals = torch.tensor(qvals).float().to(self.device).view(-1, 1)
+            outputs = self.model([states] + hidden_states)
+            x = outputs[0]
+            states_len = states_len - 1
+            x = torch.cat([x[states_len[i], i, :].reshape(1, -1) for i in range(x.shape[1])], dim=0)
+            log_probs = torch.log_softmax(x, dim=-1)
+            loss = qvals * log_probs[range(qvals.shape[0]), actions]
+            loss = loss.mean()
+            loss_max = -loss  # for maximization since pytorch optimizers minimize by default
+            loss_max.backward(retain_graph=True)
+            loss_sum += loss.item()
         self.optimizer.step()
-        return loss.item()
+        return loss_sum
 
 
 def _preprocess_states_actions(actions, states, device):
@@ -282,7 +292,8 @@ class PPO(DRLAlgorithm):
         # Calculate old probs of actions
         (states, states_len), actions, = _preprocess_states_actions(batch_actions, batch_states, self.device)
         hidden_states = self.initial_states_func(batch_size=states.shape[0], **self.initial_states_args)
-        outputs = self.actor([states] + hidden_states)
+        with torch.set_grad_enabled(False):
+            outputs = self.actor([states] + hidden_states)
         x = outputs[0]
         states_len = states_len - 1  # to select actions since samples are padded
         x = torch.cat([x[states_len[i], i, :].reshape(1, -1) for i in range(x.shape[1])], dim=0).to(self.device)
