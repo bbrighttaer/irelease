@@ -176,7 +176,7 @@ class IReLeaSE(Trainer):
 
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
-              tb_writer=None, n_procs=2, is_hsearch=False):
+              tb_writer=None, is_hsearch=False):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -262,7 +262,7 @@ class IReLeaSE(Trainer):
 
         return {'model': [agent.model.load_state_dict(best_model_wts[0]),
                           reward_func.model.load_state_dict(best_model_wts[1])],
-                'score': best_score,
+                'score': round(best_score, 3),
                 'epoch': step_idx}
 
     @staticmethod
@@ -278,9 +278,6 @@ class IReLeaSE(Trainer):
     @staticmethod
     def load_model(path, name):
         return torch.load(os.path.join(path, name), map_location=torch.device(device))
-
-
-TotalReward = namedtuple('TotalReward', field_names='reward')
 
 
 def main(flags):
@@ -319,34 +316,42 @@ def main(flags):
             init_args = irelease.initialize(hyper_params, irelease.data_provider(k, flags)['train'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_procs=1,
+                                     n_episodes=5000,
                                      tb_writer=summary_writer_creator)
+            irelease.save_model(results['model'][0],
+                                path=flags.model_dir,
+                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reinforce_agent_'
+                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
+            irelease.save_model(results['model'][1],
+                                path=flags.model_dir,
+                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reward_net_'
+                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
 
 
 def default_hparams(args):
-    return {'d_model': 15,
+    return {'d_model': 1500,
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
-            'episodes_to_train': 1,
+            'episodes_to_train': 10,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 10,
             'reinforce_batch': 1,
-            'reward_params': {'num_layers': 2,
+            'reward_params': {'num_layers': 1,
                               'unit_type': 'gru',
-                              'batch_size': 64,
+                              'batch_size': 8,
                               'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 15,
+                             'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
