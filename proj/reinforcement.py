@@ -29,7 +29,7 @@ from gpmt.model import Encoder, RewardNetRNN, StackRNN, StackedRNNDropout, Stack
     CriticRNN
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
-    StateActionProbRegistry, Trajectory, EpisodeStep, PPO
+    StateActionProbRegistry, Trajectory, EpisodeStep, PPO, REINFORCE
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles
 
@@ -111,31 +111,11 @@ class IReLeaSE(Trainer):
                             apply_softmax=True,
                             probs_registry=probs_reg,
                             device=device)
-        critic = nn.Sequential(encoder,
-                               CriticRNN(hparams['d_model'], hparams['d_model'],
-                                         unit_type=hparams['critic_params']['unit_type'],
-                                         num_layers=hparams['critic_params']['num_layers']))
-        critic = critic.to(device)
-        optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
-        # drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
-        #                     initial_states_func=agent_net_hidden_states_func,
-        #                     initial_states_args={'num_layers': hparams['agent_params']['num_layers'],
-        #                                          'hidden_size': hparams['d_model'],
-        #                                          'stack_depth': hparams['agent_params']['stack_depth'],
-        #                                          'stack_width': hparams['agent_params']['stack_width'],
-        #                                          'unit_type': hparams['agent_params']['unit_type']},
-        #                     device=device,
-        #                     gamma=hparams['gamma'])
-        drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
-                      critic=critic, critic_opt=optimizer_critic_net,
-                      initial_states_func=agent_net_hidden_states_func,
-                      initial_states_args=init_state_args,
-                      device=device,
-                      gamma=hparams['gamma'],
-                      gae_lambda=hparams['gae_lambda'],
-                      ppo_eps=hparams['ppo_eps'],
-                      ppo_epochs=hparams['ppo_epochs'],
-                      ppo_batch=hparams['ppo_batch'])
+        drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
+                            initial_states_func=agent_net_hidden_states_func,
+                            initial_states_args=init_state_args,
+                            device=device,
+                            gamma=hparams['gamma'])
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -253,7 +233,6 @@ class IReLeaSE(Trainer):
                           f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
                     if mean_rewards >= score_threshold:
                         best_model_wts = [copy.deepcopy(agent.model.state_dict()),
-                                          copy.deepcopy(drl_algorithm.critic.state_dict()),
                                           copy.deepcopy(reward_func.model.state_dict())]
                         best_score = mean_rewards
                         score_threshold = best_score
@@ -269,8 +248,7 @@ class IReLeaSE(Trainer):
                                           num_samples=2)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                 tracker.track('reward_loss', irl_loss, step_idx)
-                tracker.track('critic_loss', rl_loss[0], step_idx)
-                tracker.track('agent_loss', rl_loss[1], step_idx)
+                tracker.track('agent_loss', rl_loss, step_idx)
 
                 if batch_episodes == n_episodes:
                     print('Training completed!')
@@ -282,8 +260,7 @@ class IReLeaSE(Trainer):
                 exp_trajectories.clear()
 
         return {'model': [agent.model.load_state_dict(best_model_wts[0]),
-                          drl_algorithm.critic.load_state_dict(best_model_wts[1]),
-                          reward_func.model.load_state_dict(best_model_wts[2])],
+                          reward_func.model.load_state_dict(best_model_wts[1])],
                 'score': best_score,
                 'epoch': step_idx}
 

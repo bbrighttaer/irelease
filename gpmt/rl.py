@@ -375,8 +375,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         d_samp, _ = seq2tensor(d_traj, tokens=get_default_tokens())
         d_samp = torch.from_numpy(d_samp).long().to(self.device)
         losses = []
-        pbar = trange(self.k, desc='IRL optimization...')
-        for i in pbar:
+        for i in trange(self.k, desc='IRL optimization...'):
             # D_demo processing
             demo_states, demo_actions = self.demo_gen_data.random_training_set()
             d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)
