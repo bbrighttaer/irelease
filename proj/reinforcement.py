@@ -26,7 +26,7 @@ from tqdm import tqdm
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, RewardNetRNN, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
-    CriticRNN
+    CriticRNN, GraphConvSequential, GraphConvLayer, GraphPool, GraphGather, RewardNetGConv
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO, REINFORCE
@@ -120,13 +120,7 @@ class IReLeaSE(Trainer):
                             grad_clipping=hparams['reinforce_max_norm'])
 
         # Reward function entities
-        reward_net = nn.Sequential(encoder,
-                                   RewardNetRNN(input_size=hparams['d_model'],
-                                                hidden_size=hparams['d_model'],
-                                                num_layers=hparams['reward_params']['num_layers'],
-                                                bidirectional=True,
-                                                dropout=hparams['dropout'],
-                                                unit_type=hparams['reward_params']['unit_type']))
+        reward_net = RewardNetGConv(d_model=128, num_layers=1, device=device, dropout=hparams['dropout'])
         reward_net = reward_net.to(device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=gen_data.all_characters,
                                          device=device,
@@ -322,22 +316,22 @@ def main(flags):
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
                                 name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reinforce_agent_'
-                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                f'{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
                                 name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reward_net_'
-                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
 
 
 def default_hparams(args):
-    return {'d_model': 1500,
+    return {'d_model': 15,
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
-            'episodes_to_train': 10,
+            'episodes_to_train': 3,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
@@ -353,7 +347,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 1500,
+                             'stack_width': 15,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
