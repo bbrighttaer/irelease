@@ -664,7 +664,7 @@ class RewardNetGConv(nn.Module):
         layers.append(nn.LayerNorm(d_model))
         layers.append(nn.ReLU())
         layers.append(nn.Dropout(dropout))
-        layers.append(GraphGather())
+        layers.append(GraphGather(device=self.device))
 
         # Read out
         layers.append(nn.LayerNorm(d_model * 2))
