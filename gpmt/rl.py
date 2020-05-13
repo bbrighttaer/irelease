@@ -292,7 +292,8 @@ class PPO(DRLAlgorithm):
         # Calculate old probs of actions
         (states, states_len), actions, = _preprocess_states_actions(batch_actions, batch_states, self.device)
         hidden_states = self.initial_states_func(batch_size=states.shape[0], **self.initial_states_args)
-        outputs = self.actor([states] + hidden_states)
+        with torch.set_grad_enabled(False):
+            outputs = self.actor([states] + hidden_states)
         x = outputs[0]
         states_len = states_len - 1  # to select actions since samples are padded
         x = torch.cat([x[states_len[i], i, :].reshape(1, -1) for i in range(x.shape[1])], dim=0).to(self.device)
