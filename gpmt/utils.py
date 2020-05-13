@@ -129,7 +129,7 @@ def sanitize_smiles(smiles, canonical=True, throw_warning=False):
     return new_smiles
 
 
-def canonical_smiles(smiles, sanitize=True, throw_warning=False):
+def canonical_smiles(smiles, sanitize=False, throw_warning=False):
     """
     Takes list of SMILES strings and returns list of their canonical SMILES.
 
