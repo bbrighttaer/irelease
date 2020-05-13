@@ -147,7 +147,7 @@ def unpack_batch(trajs, gamma):
 
 class REINFORCE(DRLAlgorithm):
     def __init__(self, model, optimizer, initial_states_func, initial_states_args, gamma=0.97,
-                 reinforce_batch=1, grad_clipping=None, device='cpu'):
+                 reinforce_batch=1, device='cpu'):
         assert callable(initial_states_func)
         assert isinstance(initial_states_args, dict)
         self.model = model
@@ -157,7 +157,6 @@ class REINFORCE(DRLAlgorithm):
         self.initial_states_func = initial_states_func
         self.initial_states_args = initial_states_args
         self.reinforce_batch = reinforce_batch
-        self.grad_clipping = grad_clipping
 
     @torch.enable_grad()
     def fit(self, trajectories):
@@ -166,19 +165,23 @@ class REINFORCE(DRLAlgorithm):
 
         Arguments:
         --------------
-        :param trajectories: list
+        :param states: list
+            The raw states from the environment .
+        :param actions: list
+            The actions corresponding to each state.
+        :param qvals: list
+            The Q-values or Returns corresponding to each state.
         """
-        states_data, actions_data, qvals_data = unpack_batch(trajectories, self.gamma)
-        assert len(states_data) == len(actions_data) == len(qvals_data)
+        states_data, actions_data, qvals = unpack_batch(trajectories, self.gamma)
+        assert len(states_data) == len(actions_data) == len(qvals)
         (states_data, states_len_data), actions_data, = _preprocess_states_actions(actions_data, states_data,
                                                                                    self.device)
         self.optimizer.zero_grad()
-        losses = []
-        for batch_ofs in trange(0, len(states_data), self.reinforce_batch, desc='REINFORCE opt....'):
+        loss_sum = 0
+        for batch_ofs in range(0, len(states_data), self.reinforce_batch):
             states = states_data[batch_ofs:batch_ofs + self.reinforce_batch]
             states_len = states_len_data[batch_ofs:batch_ofs + self.reinforce_batch]
             actions = actions_data[batch_ofs:batch_ofs + self.reinforce_batch]
-            qvals = qvals_data[batch_ofs:batch_ofs + self.reinforce_batch]
 
             hidden_states = self.initial_states_func(states.shape[0], **self.initial_states_args)
             qvals = torch.tensor(qvals).float().to(self.device).view(-1, 1)
@@ -191,12 +194,9 @@ class REINFORCE(DRLAlgorithm):
             loss = loss.mean()
             loss_max = -loss  # for maximization since pytorch optimizers minimize by default
             loss_max.backward(retain_graph=True)
-            losses.append(loss.item())
-
-        if self.grad_clipping is not None:
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clipping)
+            loss_sum += loss.item()
         self.optimizer.step()
-        return np.mean(losses)
+        return loss_sum
 
 
 def _preprocess_states_actions(actions, states, device):
@@ -376,22 +376,26 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             extra_trajs = self.replay_buffer.sample(self.batch_size)
             trajectories.extend(extra_trajs)
             self.replay_buffer.populate(trajectories)
-        d_samp_smiles, d_traj_probs = [], []
+        d_traj, d_traj_probs = [], []
         for traj in trajectories:
-            d_samp_smiles.append(''.join(list(traj.terminal_state.state)) + traj.terminal_state.action)
+            d_traj.append(''.join(list(traj.terminal_state.state)) + traj.terminal_state.action)
             d_traj_probs.append(traj.traj_prob)
-        d_samp, _ = seq2tensor(pad_sequences(list(d_samp_smiles))[0], tokens=get_default_tokens())
+        _, valid_vec_samp = canonical_smiles(d_traj)
+        valid_vec_samp = torch.tensor(valid_vec_samp).view(-1, 1).float().to(self.device)
+        d_traj, _ = pad_sequences(d_traj)
+        d_samp, _ = seq2tensor(d_traj, tokens=get_default_tokens())
         d_samp = torch.from_numpy(d_samp).long().to(self.device)
         losses = []
-        for i in trange(self.k, desc='IRL optimization...'):
+        pbar = trange(self.k, desc='IRL optimization...')
+        for i in pbar:
             # D_demo processing
-            demo_smiles = self.demo_gen_data.random_training_set_smiles()
-            d_demo, _ = seq2tensor(pad_sequences(list(demo_smiles))[0], tokens=get_default_tokens())
-            d_demo = torch.from_numpy(d_demo).long().to(self.device)
-            d_demo_out = self.model(demo_smiles)
+            demo_states, demo_actions = self.demo_gen_data.random_training_set()
+            d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)
+            valid_vec_demo = torch.ones(d_demo.shape[0]).view(-1, 1).float().to(self.device)
+            d_demo_out = self.model([d_demo, valid_vec_demo])
 
             # D_samp processing
-            d_samp_out = self.model(d_samp_smiles)
+            d_samp_out = self.model([d_samp, valid_vec_samp])
             d_out_combined = torch.cat([d_samp_out, d_demo_out], dim=0)
             if d_samp_out.shape[0] < 1000:
                 d_samp_out = d_out_combined

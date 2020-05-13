@@ -14,11 +14,8 @@ from rdkit import RDLogger
 from sklearn.model_selection import KFold, StratifiedKFold
 from tqdm import trange
 
-from gpmt.mol_graphs import ConvMol
-
 lg = RDLogger.logger()
 lg.setLevel(RDLogger.CRITICAL)
-
 
 def get_fp(smiles):
     fp = []
@@ -641,30 +638,6 @@ def pad_sequences(seqs, max_length=None, pad_symbol=' '):
         lengths.append(cur_len)
         seqs[i] = seqs[i] + pad_symbol * (max_length - cur_len)
     return seqs, lengths
-
-
-def process_gconv_view_data(mols, device):
-    """Converts ConvMol sample(s) to pytorch tensor data"""
-    mol_data = []
-    multiConvMol = ConvMol.agglomerate_mols(mols)
-    mol_data.append(torch.from_numpy(multiConvMol.get_atom_features()).to(device))
-    mol_data.append(torch.from_numpy(multiConvMol.deg_slice).to(device))
-    mol_data.append(torch.tensor(multiConvMol.membership).to(device))
-    mol_data.append([mol.get_num_atoms() for mol in mols])
-    for i in range(1, len(multiConvMol.get_deg_adjacency_lists())):
-        mol_data.append(torch.from_numpy(multiConvMol.get_deg_adjacency_lists()[i]).to(device))
-    return mol_data
-
-
-def get_activation_func(activation):
-    from gpmt.model import NonsatActivation
-    return {'relu': torch.nn.ReLU(),
-            'leaky_relu': torch.nn.LeakyReLU(.2),
-            'sigmoid': torch.nn.Sigmoid(),
-            'tanh': torch.nn.Tanh(),
-            'softmax': torch.nn.Softmax(),
-            'elu': torch.nn.ELU(),
-            'nonsat': NonsatActivation()}.get(activation.lower(), torch.nn.ReLU())
 
 
 class ExpAverage(object):
