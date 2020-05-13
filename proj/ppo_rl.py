@@ -38,7 +38,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -311,9 +311,9 @@ def main(flags):
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-        print('-----------------------------------------------------------------')
-        print(f'{sim_label}\tDemonstrations file: {flags.demo_file}')
-        print('-----------------------------------------------------------------')
+        print('--------------------------------------------------------------------------------')
+        print(f'{device}\n{sim_label}\tDemonstrations file: {flags.demo_file}')
+        print('--------------------------------------------------------------------------------')
 
         irelease = IReLeaSE()
         k = 1
@@ -344,25 +344,25 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 15,
+    return {'d_model': 1500,
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
-            'episodes_to_train': 3,
+            'episodes_to_train': 10,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 10,
-            'reward_params': {'num_layers': 1,
+            'reward_params': {'num_layers': 2,
                               'd_model': 128,
-                              'batch_size': 8,
+                              'batch_size': 32,
                               'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 15,
+                             'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
