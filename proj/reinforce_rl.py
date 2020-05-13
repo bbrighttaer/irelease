@@ -2,7 +2,7 @@
 # Project: GPMT
 # Date: 4/8/2020
 # Time: 8:02 PM
-# File: reinforcement.py
+# File: reinforce_rl.py
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
@@ -11,7 +11,6 @@ import copy
 import os
 import random
 import time
-from collections import namedtuple
 from datetime import datetime as dt
 
 import numpy as np
@@ -25,11 +24,11 @@ from tqdm import tqdm
 
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
-from gpmt.model import Encoder, RewardNetRNN, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
-    CriticRNN
+from gpmt.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
+    RewardNetGConv
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
-    StateActionProbRegistry, Trajectory, EpisodeStep, PPO
+    StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles
 
@@ -111,31 +110,18 @@ class IReLeaSE(Trainer):
                             apply_softmax=True,
                             probs_registry=probs_reg,
                             device=device)
-        critic = nn.Sequential(encoder,
-                               CriticRNN(hparams['d_model'], hparams['d_model'],
-                                         unit_type=hparams['critic_params']['unit_type'],
-                                         num_layers=hparams['critic_params']['num_layers']))
-        critic = critic.to(device)
-        optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
-        drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
-                      critic=critic, critic_opt=optimizer_critic_net,
-                      initial_states_func=agent_net_hidden_states_func,
-                      initial_states_args=init_state_args,
-                      device=device,
-                      gamma=hparams['gamma'],
-                      gae_lambda=hparams['gae_lambda'],
-                      ppo_eps=hparams['ppo_eps'],
-                      ppo_epochs=hparams['ppo_epochs'],
-                      ppo_batch=hparams['ppo_batch'])
+        drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
+                            initial_states_func=agent_net_hidden_states_func,
+                            initial_states_args=init_state_args,
+                            device=device,
+                            gamma=hparams['gamma'],
+                            reinforce_batch=hparams['reinforce_batch'],
+                            grad_clipping=hparams['reinforce_max_norm'])
 
         # Reward function entities
-        reward_net = nn.Sequential(encoder,
-                                   RewardNetRNN(input_size=hparams['d_model'],
-                                                hidden_size=hparams['d_model'],
-                                                num_layers=hparams['reward_params']['num_layers'],
-                                                bidirectional=True,
-                                                dropout=hparams['dropout'],
-                                                unit_type=hparams['reward_params']['unit_type']))
+        reward_net = RewardNetGConv(d_model=hparams['reward_params']['d_model'],
+                                    num_layers=hparams['reward_params']['num_layers'],
+                                    device=device, dropout=hparams['dropout'])
         reward_net = reward_net.to(device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=gen_data.all_characters,
                                          device=device,
@@ -244,7 +230,6 @@ class IReLeaSE(Trainer):
                           f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
                     if mean_rewards >= score_threshold:
                         best_model_wts = [copy.deepcopy(agent.model.state_dict()),
-                                          copy.deepcopy(drl_algorithm.critic.state_dict()),
                                           copy.deepcopy(reward_func.model.state_dict())]
                         best_score = mean_rewards
                         score_threshold = best_score
@@ -260,8 +245,7 @@ class IReLeaSE(Trainer):
                                           num_samples=2)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                 tracker.track('reward_loss', irl_loss, step_idx)
-                tracker.track('critic_loss', rl_loss[0], step_idx)
-                tracker.track('agent_loss', rl_loss[1], step_idx)
+                tracker.track('agent_loss', rl_loss, step_idx)
 
                 if batch_episodes == n_episodes:
                     print('Training completed!')
@@ -273,8 +257,7 @@ class IReLeaSE(Trainer):
                 exp_trajectories.clear()
 
         return {'model': [agent.model.load_state_dict(best_model_wts[0]),
-                          drl_algorithm.critic.load_state_dict(best_model_wts[1]),
-                          reward_func.model.load_state_dict(best_model_wts[2])],
+                          reward_func.model.load_state_dict(best_model_wts[1])],
                 'score': round(best_score, 3),
                 'epoch': step_idx}
 
@@ -294,7 +277,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = 'DeNovo-IReLeaSE'
+    sim_label = 'DeNovo-IReLeaSE-reinf'
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -333,33 +316,31 @@ def main(flags):
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_ppo_agent_'
-                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reinforce_agent_'
+                                f'{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_ppo_critic_'
-                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
-            irelease.save_model(results['model'][2],
-                                path=flags.model_dir,
                                 name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reward_net_'
-                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
 
 
 def default_hparams(args):
-    return {'d_model': 1500,
+    return {'d_model': 15,
             'dropout': 0.1,
             'monte_carlo_N': 10,
             'gamma': 0.99,
-            'episodes_to_train': 1,
+            'episodes_to_train': 3,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 10,
+            'reinforce_batch': 1,
+            'reinforce_max_norm': 10,
             'reward_params': {'num_layers': 1,
-                              'unit_type': 'gru',
+                              'd_model': 128,
                               'batch_size': 8,
                               'irl_alg_num_iter': 10,
                               'optimizer': 'adam',
@@ -367,7 +348,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 1500,
+                             'stack_width': 15,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
