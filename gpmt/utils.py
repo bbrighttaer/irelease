@@ -129,7 +129,7 @@ def sanitize_smiles(smiles, canonical=True, throw_warning=False):
     return new_smiles
 
 
-def canonical_smiles(smiles, sanitize=False, throw_warning=False):
+def canonical_smiles(smiles, sanitize=True, throw_warning=False):
     """
     Takes list of SMILES strings and returns list of their canonical SMILES.
 
@@ -161,8 +161,12 @@ def canonical_smiles(smiles, sanitize=False, throw_warning=False):
     for sm in smiles:
         try:
             mol = Chem.MolFromSmiles(sm, sanitize=sanitize)
-            new_smiles.append(Chem.MolToSmiles(mol))
-            valid_vec.append(1)
+            to_smiles = Chem.MolToSmiles(mol)
+            if Chem.MolFromSmiles(to_smiles):  # ensures round-trip is valid
+                new_smiles.append(to_smiles)
+                valid_vec.append(1)
+            else:
+                raise Exception()
         except:
             if throw_warning:
                 warnings.warn(sm + ' can not be canonized: invalid '
