@@ -254,7 +254,7 @@ class IReLeaSE(Trainer):
                 samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
                                           num_samples=2)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
-                tracker.track('reward_loss', irl_loss, step_idx)
+                tracker.track('irl_loss', irl_loss, step_idx)
                 tracker.track('critic_loss', rl_loss[0], step_idx)
                 tracker.track('agent_loss', rl_loss[1], step_idx)
 
@@ -352,13 +352,13 @@ def default_hparams(args):
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
-            'ppo_epochs': 10,
+            'ppo_epochs': 2,
             'reward_params': {'num_layers': 2,
                               'd_model': 128,
                               'batch_size': 32,
-                              'irl_alg_num_iter': 10,
+                              'irl_alg_num_iter': 5,
                               'optimizer': 'adam',
-                              'optimizer__global__weight_decay': 0.0005,
+                              'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,

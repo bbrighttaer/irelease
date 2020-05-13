@@ -244,7 +244,7 @@ class IReLeaSE(Trainer):
                 samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
                                           num_samples=2)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
-                tracker.track('reward_loss', irl_loss, step_idx)
+                tracker.track('irl_loss', irl_loss, step_idx)
                 tracker.track('agent_loss', rl_loss, step_idx)
 
                 if batch_episodes == n_episodes:
@@ -312,7 +312,7 @@ def main(flags):
             init_args = irelease.initialize(hyper_params, irelease.data_provider(k, flags)['train'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=5000,
+                                     n_episodes=1000,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -330,21 +330,17 @@ def main(flags):
 def default_hparams(args):
     return {'d_model': 1500,
             'dropout': 0.1,
-            'monte_carlo_N': 10,
-            'gamma': 0.99,
+            'monte_carlo_N': 5,
+            'gamma': 0.95,
             'episodes_to_train': 10,
-            'gae_lambda': 0.95,
-            'ppo_eps': 0.2,
-            'ppo_batch': 1,
-            'ppo_epochs': 10,
             'reinforce_batch': 1,
             'reinforce_max_norm': 10,
             'reward_params': {'num_layers': 2,
                               'd_model': 128,
                               'batch_size': 32,
-                              'irl_alg_num_iter': 10,
+                              'irl_alg_num_iter': 5,
                               'optimizer': 'adam',
-                              'optimizer__global__weight_decay': 0.0005,
+                              'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
@@ -352,12 +348,7 @@ def default_hparams(args):
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
-                             'optimizer__global__lr': 0.001},
-            'critic_params': {'num_layers': 1,
-                              'unit_type': 'gru',
-                              'optimizer': 'adam',
-                              'optimizer__global__weight_decay': 0.0005,
-                              'optimizer__global__lr': 0.001}
+                             'optimizer__global__lr': 0.001}
             }
 
 
