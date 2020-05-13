@@ -375,25 +375,22 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             extra_trajs = self.replay_buffer.sample(self.batch_size)
             trajectories.extend(extra_trajs)
             self.replay_buffer.populate(trajectories)
-        d_traj, d_traj_probs = [], []
+        d_samp_smiles, d_traj_probs = [], []
         for traj in trajectories:
-            d_traj.append(''.join(list(traj.terminal_state.state)) + traj.terminal_state.action)
+            d_samp_smiles.append(''.join(list(traj.terminal_state.state)) + traj.terminal_state.action)
             d_traj_probs.append(traj.traj_prob)
-        _, valid_vec_samp = canonical_smiles(d_traj)
-        valid_vec_samp = torch.tensor(valid_vec_samp).view(-1, 1).float().to(self.device)
-        d_traj, _ = pad_sequences(d_traj)
-        d_samp, _ = seq2tensor(d_traj, tokens=get_default_tokens())
+        d_samp, _ = seq2tensor(pad_sequences(list(d_samp_smiles))[0], tokens=get_default_tokens())
         d_samp = torch.from_numpy(d_samp).long().to(self.device)
         losses = []
         for i in trange(self.k, desc='IRL optimization...'):
             # D_demo processing
-            demo_states, demo_actions = self.demo_gen_data.random_training_set()
-            d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)
-            valid_vec_demo = torch.ones(d_demo.shape[0]).view(-1, 1).float().to(self.device)
-            d_demo_out = self.model([d_demo, valid_vec_demo])
+            demo_smiles = self.demo_gen_data.random_training_set_smiles()
+            d_demo, _ = seq2tensor(pad_sequences(list(demo_smiles))[0], tokens=get_default_tokens())
+            d_demo = torch.from_numpy(d_demo).long().to(self.device)
+            d_demo_out = self.model(demo_smiles)
 
             # D_samp processing
-            d_samp_out = self.model([d_samp, valid_vec_samp])
+            d_samp_out = self.model(d_samp_smiles)
             d_out_combined = torch.cat([d_samp_out, d_demo_out], dim=0)
             if d_samp_out.shape[0] < 1000:
                 d_samp_out = d_out_combined

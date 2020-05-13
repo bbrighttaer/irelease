@@ -677,10 +677,12 @@ class RewardNetGConv(nn.Module):
                                          *layers)
         self.feat = ConvMolFeaturizer()
 
-    def forward(self, x):
-        if not isinstance(x, (list, tuple)):
-            x = [x]
-        smiles, flags = canonical_smiles(x)
+    def forward(self, smiles):
+        if not isinstance(smiles, (list, tuple)):
+            smiles = [smiles]
+        x = [s[1:-1] for s in smiles]  # eliminate < and >
+        smiles, _ = canonical_smiles(x)
+        flags = [1 if len(s) > 0 else 0 for s in smiles]
         mols = []
         for idx, f in enumerate(flags):
             if f == 1:
