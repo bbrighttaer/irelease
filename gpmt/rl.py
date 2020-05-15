@@ -11,6 +11,7 @@ from collections import namedtuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import StepLR
 from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
 from tqdm import trange
@@ -147,11 +148,12 @@ def unpack_batch(trajs, gamma):
 
 class REINFORCE(DRLAlgorithm):
     def __init__(self, model, optimizer, initial_states_func, initial_states_args, gamma=0.97,
-                 reinforce_batch=1, grad_clipping=None, device='cpu'):
+                 reinforce_batch=1, grad_clipping=None, lr_decay_gamma=0.1, lr_decay_step=100, device='cpu'):
         assert callable(initial_states_func)
         assert isinstance(initial_states_args, dict)
         self.model = model
         self.optimizer = optimizer
+        self.lr_scheduler = StepLR(optimizer, step_size=lr_decay_step, gamma=lr_decay_gamma)
         self.device = device
         self.gamma = gamma
         self.initial_states_func = initial_states_func
@@ -174,6 +176,8 @@ class REINFORCE(DRLAlgorithm):
                                                                                    self.device)
         self.optimizer.zero_grad()
         losses = []
+        loss_accum = 0.
+        num_batches = 0
         for batch_ofs in trange(0, len(states_data), self.reinforce_batch, desc='REINFORCE opt....'):
             states = states_data[batch_ofs:batch_ofs + self.reinforce_batch]
             states_len = states_len_data[batch_ofs:batch_ofs + self.reinforce_batch]
@@ -189,13 +193,15 @@ class REINFORCE(DRLAlgorithm):
             log_probs = torch.log_softmax(x, dim=-1)
             loss = qvals * log_probs[range(qvals.shape[0]), actions]
             loss = loss.mean()
-            loss_max = -loss  # for maximization since pytorch optimizers minimize by default
-            loss_max.backward(retain_graph=True)
             losses.append(loss.item())
-
+            loss_accum = loss_accum - loss
+            num_batches += 1
+        loss_max = loss_accum / float(num_batches)  # for maximization since pytorch optimizers minimize by default
+        loss_max.backward()
         if self.grad_clipping is not None:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clipping)
         self.optimizer.step()
+        self.lr_scheduler.step()
         return np.mean(losses)
 
 

@@ -116,7 +116,9 @@ class IReLeaSE(Trainer):
                             device=device,
                             gamma=hparams['gamma'],
                             reinforce_batch=hparams['reinforce_batch'],
-                            grad_clipping=hparams['reinforce_max_norm'])
+                            grad_clipping=hparams['reinforce_max_norm'],
+                            lr_decay_gamma=hparams['lr_decay_gamma'],
+                            lr_decay_step=hparams['lr_decay_step_size'])
 
         # Reward function entities
         reward_net = RewardNetGConv(d_model=hparams['reward_params']['d_model'],
@@ -229,10 +231,14 @@ class IReLeaSE(Trainer):
                     print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
                           f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
                     if mean_rewards >= score_threshold:
-                        best_model_wts = [copy.deepcopy(agent.model.state_dict()),
-                                          copy.deepcopy(reward_func.model.state_dict())]
+                        best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
+                                          copy.deepcopy(irl_algorithm.model.state_dict())]
                         best_score = mean_rewards
                         score_threshold = best_score
+
+                    if done_episodes == n_episodes:
+                        print('Training completed!')
+                        break
 
                 if batch_episodes < episodes_to_train:
                     continue
@@ -247,19 +253,16 @@ class IReLeaSE(Trainer):
                 tracker.track('irl_loss', irl_loss, step_idx)
                 tracker.track('agent_loss', rl_loss, step_idx)
 
-                if batch_episodes == n_episodes:
-                    print('Training completed!')
-                    break
-
                 # Reset
                 batch_episodes = 0
                 trajectories.clear()
                 exp_trajectories.clear()
 
-        return {'model': [agent.model.load_state_dict(best_model_wts[0]),
-                          reward_func.model.load_state_dict(best_model_wts[1])],
+        drl_algorithm.model.load_state_dict(best_model_wts[0])
+        irl_algorithm.model.load_state_dict(best_model_wts[1])
+        return {'model': [drl_algorithm.model, irl_algorithm.model],
                 'score': round(best_score, 3),
-                'epoch': step_idx}
+                'epoch': done_episodes}
 
     @staticmethod
     def evaluate_model(*args, **kwargs):
@@ -316,11 +319,11 @@ def main(flags):
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reinforce_agent_'
+                                name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_reinforce_agent_'
                                 f'{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reward_net_'
+                                name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_reward_net_'
                                 f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
@@ -332,11 +335,13 @@ def default_hparams(args):
             'dropout': 0.1,
             'monte_carlo_N': 5,
             'gamma': 0.95,
-            'episodes_to_train': 10,
+            'episodes_to_train': 1,
             'reinforce_batch': 1,
-            'reinforce_max_norm': 10,
+            'reinforce_max_norm': 3,
+            'lr_decay_gamma': 0.1,
+            'lr_decay_step_size': 1000,
             'reward_params': {'num_layers': 2,
-                              'd_model': 128,
+                              'd_model': 256,
                               'batch_size': 32,
                               'irl_alg_num_iter': 5,
                               'optimizer': 'adam',
@@ -348,7 +353,7 @@ def default_hparams(args):
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
-                             'optimizer__global__lr': 0.001}
+                             'optimizer__global__lr': 0.01}
             }
 
 

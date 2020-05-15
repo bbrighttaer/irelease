@@ -238,11 +238,15 @@ class IReLeaSE(Trainer):
                     print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
                           f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
                     if mean_rewards >= score_threshold:
-                        best_model_wts = [copy.deepcopy(agent.model.state_dict()),
+                        best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                           copy.deepcopy(drl_algorithm.critic.state_dict()),
-                                          copy.deepcopy(reward_func.model.state_dict())]
+                                          copy.deepcopy(irl_algorithm.model.state_dict())]
                         best_score = mean_rewards
                         score_threshold = best_score
+
+                    if done_episodes == n_episodes:
+                        print('Training completed!')
+                        break
 
                 if batch_episodes < episodes_to_train:
                     continue
@@ -258,18 +262,17 @@ class IReLeaSE(Trainer):
                 tracker.track('critic_loss', rl_loss[0], step_idx)
                 tracker.track('agent_loss', rl_loss[1], step_idx)
 
-                if batch_episodes == n_episodes:
-                    print('Training completed!')
-                    break
-
                 # Reset
                 batch_episodes = 0
                 trajectories.clear()
                 exp_trajectories.clear()
 
-        return {'model': [agent.model.load_state_dict(best_model_wts[0]),
-                          drl_algorithm.critic.load_state_dict(best_model_wts[1]),
-                          reward_func.model.load_state_dict(best_model_wts[2])],
+        drl_algorithm.actor.load_state_dict(best_model_wts[0])
+        drl_algorithm.critic.load_state_dict(best_model_wts[1])
+        irl_algorithm.model.load_state_dict(best_model_wts[2])
+        return {'model': [drl_algorithm.actor,
+                          drl_algorithm.critic,
+                          irl_algorithm.model],
                 'score': round(best_score, 3),
                 'epoch': step_idx}
 
@@ -324,20 +327,20 @@ def main(flags):
             init_args = irelease.initialize(hyper_params, irelease.data_provider(k, flags)['train'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=5000,
+                                     n_episodes=10000,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_ppo_agent_'
-                                f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_ppo_agent_'
+                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_ppo_critic_'
-                                f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_ppo_critic_'
+                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][2],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["unit_type"]}_reward_net_'
-                                f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_reward_net_'
+                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
