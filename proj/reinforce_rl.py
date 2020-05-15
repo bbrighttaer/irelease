@@ -312,7 +312,7 @@ def main(flags):
             init_args = irelease.initialize(hyper_params, irelease.data_provider(k, flags)['train'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=1000,
+                                     n_episodes=10000,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
