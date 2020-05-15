@@ -332,10 +332,10 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 1500,
-            'dropout': 0.1,
+            'dropout': 0.2,
             'monte_carlo_N': 5,
             'gamma': 0.95,
-            'episodes_to_train': 1,
+            'episodes_to_train': 10,
             'reinforce_batch': 1,
             'reinforce_max_norm': 3,
             'lr_decay_gamma': 0.1,

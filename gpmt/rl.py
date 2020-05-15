@@ -176,7 +176,6 @@ class REINFORCE(DRLAlgorithm):
                                                                                    self.device)
         self.optimizer.zero_grad()
         losses = []
-        loss_accum = 0.
         num_batches = 0
         for batch_ofs in trange(0, len(states_data), self.reinforce_batch, desc='REINFORCE opt....'):
             states = states_data[batch_ofs:batch_ofs + self.reinforce_batch]
@@ -194,10 +193,8 @@ class REINFORCE(DRLAlgorithm):
             loss = qvals * log_probs[range(qvals.shape[0]), actions]
             loss = loss.mean()
             losses.append(loss.item())
-            loss_accum = loss_accum - loss
-            num_batches += 1
-        loss_max = loss_accum / float(num_batches)  # for maximization since pytorch optimizers minimize by default
-        loss_max.backward()
+            loss_max = - loss  # for maximization since pytorch optimizers minimize by default
+            loss_max.backward(retain_graph=True)
         if self.grad_clipping is not None:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clipping)
         self.optimizer.step()
