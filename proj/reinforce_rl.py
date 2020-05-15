@@ -315,7 +315,7 @@ def main(flags):
             init_args = irelease.initialize(hyper_params, irelease.data_provider(k, flags)['train'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=10000,
+                                     n_episodes=5000,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -339,7 +339,7 @@ def default_hparams(args):
             'reinforce_batch': 1,
             'reinforce_max_norm': 3,
             'lr_decay_gamma': 0.1,
-            'lr_decay_step_size': 1000,
+            'lr_decay_step_size': 100,
             'reward_params': {'num_layers': 2,
                               'd_model': 256,
                               'batch_size': 32,
@@ -353,7 +353,7 @@ def default_hparams(args):
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
-                             'optimizer__global__lr': 0.01}
+                             'optimizer__global__lr': 0.001}
             }
 
 

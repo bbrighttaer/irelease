@@ -8,6 +8,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import copy
 import math
+
 import rdkit.Chem as Chem
 import torch
 import torch.nn as nn
@@ -669,7 +670,7 @@ class RewardNetGConv(nn.Module):
         # Read out
         layers.append(nn.LayerNorm(d_model * 2))
         layers.append(nn.Linear(d_model * 2, 1))
-        # layers.append(nn.Tanh())
+        layers.append(nn.ReLU())
 
         self.model = GraphConvSequential(GraphConvLayer(in_dim, out_dim=d_model),
                                          nn.LayerNorm(d_model),
@@ -695,7 +696,7 @@ class RewardNetGConv(nn.Module):
         mols_feat = self.feat.featurize(mols, smiles, verbose=False)
         mol_data = process_gconv_view_data(mols_feat, self.device)
         out = self.model(mol_data)
-        out = out.masked_fill(mask, -.1)
+        out = out.masked_fill(mask, 0.)
         return out
 
 
