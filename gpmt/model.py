@@ -669,7 +669,7 @@ class RewardNetGConv(nn.Module):
         # Read out
         layers.append(nn.LayerNorm(d_model * 2))
         layers.append(nn.Linear(d_model * 2, 1))
-        layers.append(nn.Tanh())
+        # layers.append(nn.Tanh())
 
         self.model = GraphConvSequential(GraphConvLayer(in_dim, out_dim=d_model),
                                          nn.LayerNorm(d_model),
