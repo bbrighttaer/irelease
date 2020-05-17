@@ -68,6 +68,8 @@ out/
 # Tensorboard stuff
 irelease/
 
+rf_qsar/
+
 # mpeltonen/sbt-idea plugin
 .idea_modules/
 

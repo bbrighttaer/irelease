@@ -96,7 +96,7 @@ class GeneratorData(object):
             batch_size = self.batch_size
         assert (batch_size > 0)
         sels = np.random.randint(0, self.file_len - 1, batch_size)
-        return [self.file[i] for i in sels]
+        return [self.file[i][1:-1] for i in sels]
 
     def random_training_set(self, batch_size=None):
         if batch_size is None:

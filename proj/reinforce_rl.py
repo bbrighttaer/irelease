@@ -25,7 +25,8 @@ from tqdm import tqdm
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
-    RewardNetGConv, RewardNetRNN
+    RewardNetRNN, ExpertModel
+from gpmt.predictor import rf_qsar_predictor
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
@@ -38,7 +39,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -149,6 +150,8 @@ class IReLeaSE(Trainer):
                      'reward_func': reward_function,
                      'gamma': hparams['gamma'],
                      'episodes_to_train': hparams['episodes_to_train'],
+                     'expert_model': ExpertModel(rf_qsar_predictor, './rf_qsar/'),
+                     'demo_data_gen': gen_data,
                      'gen_args': {'num_layers': hparams['agent_params']['num_layers'],
                                   'hidden_size': hparams['d_model'],
                                   'num_dir': 1,
@@ -187,9 +190,16 @@ class IReLeaSE(Trainer):
         reward_func = init_args['reward_func']
         gamma = init_args['gamma']
         episodes_to_train = init_args['episodes_to_train']
-        score_threshold = 0.
+        expert_model = init_args['expert_model']
+        demo_data_gen = init_args['demo_data_gen']
         best_model_wts = None
-        best_score = None
+
+        # set threshold using demonstrations
+        print('Making predictions for demo data...')
+        _, predictions = expert_model(demo_data_gen.random_training_set_smiles(demo_data_gen.file_len))
+        baseline_score = np.mean(predictions)
+        best_score = baseline_score
+        print('Score threshold set using demo data predictions.')
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -234,11 +244,15 @@ class IReLeaSE(Trainer):
                     tracker.track('total_reward', reward, step_idx)
                     print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
                           f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
-                    if mean_rewards >= score_threshold:
+                    samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
+                                              num_samples=100)
+                    _, predictions = expert_model.predict(samples)
+                    score = np.mean(predictions)
+                    tb_writer.add_scalars('qsar_score', {'gen_score': score, 'baseline': baseline_score}, step_idx)
+                    if score >= best_score:
                         best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                           copy.deepcopy(irl_algorithm.model.state_dict())]
-                        best_score = mean_rewards
-                        score_threshold = best_score
+                        best_score = score
 
                     if done_episodes == n_episodes:
                         print('Training completed!')
@@ -252,7 +266,7 @@ class IReLeaSE(Trainer):
                 irl_loss = irl_algorithm.fit(trajectories)
                 rl_loss = drl_algorithm.fit(exp_trajectories)
                 samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
-                                          num_samples=2)
+                                          num_samples=1)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                 tracker.track('irl_loss', irl_loss, step_idx)
                 tracker.track('agent_loss', rl_loss, step_idx)
@@ -324,11 +338,11 @@ def main(flags):
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
                                 name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_reinforce_agent_'
-                                f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
                                 name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_reward_net_'
-                                f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
@@ -341,7 +355,7 @@ def default_hparams(args):
             'gamma': 0.95,
             'episodes_to_train': 10,
             'reinforce_batch': 1,
-            'reinforce_max_norm': 3,
+            'reinforce_max_norm': 10,
             'lr_decay_gamma': 0.1,
             'lr_decay_step_size': 100,
             'reward_params': {'num_layers': 1,

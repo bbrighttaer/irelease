@@ -6,6 +6,7 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import os
 import copy
 import math
 
@@ -13,7 +14,7 @@ import rdkit.Chem as Chem
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter_add, scatter_max
+# from torch_scatter import scatter_add, scatter_max
 
 from gpmt.graph_features import ConvMolFeaturizer
 from gpmt.utils import init_hidden, init_cell, get_activation_func, process_gconv_view_data, canonical_smiles
@@ -908,3 +909,45 @@ class GraphGather2D(GraphGather):
         if self._batch_first:
             mol_features = mol_features.permute(1, 0, 2)
         return mol_features
+
+
+class ExpertModel:
+    """
+    Wraps a model that serves as an expert to evaluate generated SMILES
+
+    Arguments:
+    -----------
+    :param model:
+        The expert model for the evaluation. The model must have a `predict` method
+        that accepts a list of SMILES only and  a `load_model` method that loads an
+        already trained model.
+        The `predict` method shall returns only a tuple of two elements: [0] valid SMILES that were used
+        [2] an array whose entries correspond to prediction for each of the valid SMILES.
+        The `load_model` shall not return any value.
+    :param load_path:
+        The path of the saved model/weights for initializing the model.
+    """
+    def __init__(self, model, load_path):
+        assert(hasattr(model, 'predict') and hasattr(model, 'load_model'))
+        assert(callable(model.predict) and callable(model.load_model))
+        assert(os.path.exists(load_path))
+        self.model = model
+        self.model.load_model(load_path)
+        print('Expert model successfully loaded!')
+
+    def predict(self, smiles):
+        """
+        Make predictions with the given SMILES or compounds as input to the model.
+
+        Argument
+        :param smiles: list or numpy.ndarray
+        :return: numpy.ndarray
+        prediction for each compound.
+        """
+        return self.model.predict(smiles)
+
+    def __call__(self, *args, **kwargs):
+        return self.predict(*args, **kwargs)
+
+
+
