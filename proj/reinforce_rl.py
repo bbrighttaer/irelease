@@ -25,7 +25,7 @@ from tqdm import tqdm
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
-    RewardNetGConv
+    RewardNetGConv, RewardNetRNN
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
@@ -121,16 +121,20 @@ class IReLeaSE(Trainer):
                             lr_decay_step=hparams['lr_decay_step_size'])
 
         # Reward function entities
-        reward_net = RewardNetGConv(d_model=hparams['reward_params']['d_model'],
-                                    num_layers=hparams['reward_params']['num_layers'],
-                                    device=device, dropout=hparams['dropout'])
+        reward_net = nn.Sequential(encoder,
+                                   RewardNetRNN(input_size=hparams['d_model'],
+                                                hidden_size=hparams['reward_params']['d_model'],
+                                                num_layers=hparams['reward_params']['num_layers'],
+                                                bidirectional=True,
+                                                dropout=hparams['dropout'],
+                                                unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=gen_data.all_characters,
                                          device=device,
                                          mc_max_sims=hparams['monte_carlo_N'],
                                          expert_func=None)
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
-        gen_data.set_batch_size(hparams['reward_params']['batch_size'])
+        gen_data.set_batch_size(hparams['reward_params']['demo_batch_size'])
         irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, gen_data,
                                           k=hparams['reward_params']['irl_alg_num_iter'],
                                           agent_net=agent_net,
@@ -340,9 +344,10 @@ def default_hparams(args):
             'reinforce_max_norm': 3,
             'lr_decay_gamma': 0.1,
             'lr_decay_step_size': 100,
-            'reward_params': {'num_layers': 2,
-                              'd_model': 256,
-                              'batch_size': 32,
+            'reward_params': {'num_layers': 1,
+                              'd_model': 128,
+                              'unit_type': 'gru',
+                              'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
                               'optimizer': 'adam',
                               'optimizer__global__weight_decay': 0.0005,

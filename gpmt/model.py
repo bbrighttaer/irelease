@@ -559,18 +559,23 @@ class RewardNetRNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, bidirectional=True, dropout=0., unit_type='lstm'):
         super(RewardNetRNN, self).__init__()
         self.num_dir = 1
+        if num_layers == 1:
+            dropout = 0.
         self.num_layers = num_layers
         if bidirectional:
             self.num_dir += 1
         self.hidden_size = hidden_size
         if unit_type == 'lstm':
             self.has_cell = True
-            self.base_rnn = nn.LSTM(input_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
+            self.base_rnn = nn.LSTM(hidden_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
             self.post_rnn = nn.LSTMCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
         else:
             self.has_cell = False
-            self.base_rnn = nn.GRU(input_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
+            self.base_rnn = nn.GRU(hidden_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
             self.post_rnn = nn.GRUCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
+        self.proj_net = nn.Sequential(nn.Linear(input_size, hidden_size),
+                                      nn.LayerNorm(hidden_size),
+                                      nn.ELU())
         self.linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
         self.reward_net = nn.Sequential(nn.LayerNorm(hidden_size + 1),
                                         nn.Linear(self.hidden_size + 1, 1))
@@ -588,6 +593,9 @@ class RewardNetRNN(nn.Module):
         """
         x = inp[0]
         seq_len, batch_size = x.shape[:2]
+
+        # Project embedding to a low dimension space (assumes the input has a higher dimension)
+        x = self.proj_net(x)
 
         # Construct initial states
         hidden = init_hidden(self.num_layers, batch_size, self.hidden_size, self.num_dir, x.device)
