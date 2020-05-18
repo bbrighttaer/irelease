@@ -31,7 +31,7 @@ from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles
+    time_since, generate_smiles, canonical_smiles
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -197,9 +197,12 @@ class IReLeaSE(Trainer):
         best_score = 0.
 
         print('Setting baseline score...')
-        samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'], num_samples=1000,
-                                  verbose=True)
+        with torch.set_grad_enabled(False):
+            samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'], num_samples=1000,
+                                      verbose=True)
+        samples = canonical_smiles(samples, sanitize=False)[0]
         baseline_score = np.mean(expert_model(samples)[1])
+        print(f'Baseline score = {baseline_score}')
 
         # load pretrained model
         if agent_net_path and agent_net_name:
