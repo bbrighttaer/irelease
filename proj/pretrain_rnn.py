@@ -359,7 +359,7 @@ def main(flags):
                                                                       gen_data=trainer.data_provider(k, flags)['train'])
             if flags.eval:
                 model.load_state_dict(trainer.load_model(flags.model_dir, flags.eval_model_name))
-                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=3   000)
+                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=3000)
             else:
                 results = trainer.train(model=model,
                                         optimizer=optimizer,
