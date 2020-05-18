@@ -162,6 +162,7 @@ def canonical_smiles(smiles, sanitize=True, throw_warning=False):
         try:
             mol = Chem.MolFromSmiles(sm, sanitize=sanitize)
             new_smiles.append(Chem.MolToSmiles(mol))
+            valid_vec.append(1)
         except:
             if throw_warning:
                 warnings.warn(sm + ' can not be canonized: invalid '
