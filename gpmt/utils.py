@@ -161,12 +161,7 @@ def canonical_smiles(smiles, sanitize=True, throw_warning=False):
     for sm in smiles:
         try:
             mol = Chem.MolFromSmiles(sm, sanitize=sanitize)
-            to_smiles = Chem.MolToSmiles(mol)
-            if Chem.MolFromSmiles(to_smiles):  # ensures round-trip is valid
-                new_smiles.append(to_smiles)
-                valid_vec.append(1)
-            else:
-                raise Exception()
+            new_smiles.append(Chem.MolToSmiles(mol))
         except:
             if throw_warning:
                 warnings.warn(sm + ' can not be canonized: invalid '
