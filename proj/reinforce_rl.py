@@ -198,7 +198,7 @@ class IReLeaSE(Trainer):
 
         print('Setting baseline score...')
         with torch.set_grad_enabled(False):
-            samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'], num_samples=1000,
+            samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'], num_samples=200,
                                       verbose=True)
         samples = canonical_smiles(samples, sanitize=False)[0]
         baseline_score = np.mean(expert_model(samples)[1])
