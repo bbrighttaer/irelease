@@ -922,7 +922,7 @@ class ExpertModel:
         that accepts a list of SMILES only and  a `load_model` method that loads an
         already trained model.
         The `predict` method shall returns only a tuple of two elements: [0] valid SMILES that were used
-        [2] an array whose entries correspond to prediction for each of the valid SMILES.
+        [1] an array whose entries correspond to prediction for each of the valid SMILES.
         The `load_model` shall not return any value.
     :param load_path:
         The path of the saved model/weights for initializing the model.

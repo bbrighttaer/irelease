@@ -10,7 +10,7 @@ import numpy as np
 import torch
 
 from gpmt.monte_carlo import MoleculeMonteCarloTreeSearchNode, MonteCarloTreeSearch
-from gpmt.utils import canonical_smiles, seq2tensor
+from gpmt.utils import canonical_smiles
 
 
 class RewardFunction:
@@ -69,13 +69,18 @@ class RewardFunction:
             return reward
         else:
             # Get reward of completed string using the reward net
-            state = ''.join(x.tolist())
-            _, valid_vec = canonical_smiles([state])
-            valid_vec = torch.tensor(valid_vec).view(-1, 1).float().to(self.device)
-            inp, _ = seq2tensor([state], tokens=self.actions)
-            inp = torch.from_numpy(inp).long().to(self.device)
-            reward = self.model([inp, valid_vec]).squeeze().item()
-            # reward = self.model(state).squeeze().item()
+            state = 'C#CC(CCCCc1ccccc1)Cc1ccccc1N(=O)=O'  # '''.join(x.tolist())
+            smiles, valid_vec = canonical_smiles([state])
+            # valid_vec = torch.tensor(valid_vec).view(-1, 1).float().to(self.device)
+            # inp, _ = seq2tensor([state], tokens=self.actions)
+            # inp = torch.from_numpy(inp).long().to(self.device)
+            # reward = self.model([inp, valid_vec]).squeeze().item()
+            # # reward = self.model(state).squeeze().item()
+            if valid_vec[0] == 1:
+                _, pred = self.expert_func([smiles])
+                reward = np.exp(pred[0] / 3) / 100.
+            else:
+                reward = 0.
             return reward
 
     def expert_reward(self, x):
