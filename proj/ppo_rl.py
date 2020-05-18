@@ -255,7 +255,7 @@ class IReLeaSE(Trainer):
                 print('Fitting models...')
                 irl_loss = irl_algorithm.fit(trajectories)
                 rl_loss = drl_algorithm.fit(exp_trajectories)
-                samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
+                samples = generate_smiles(drl_algorithm.model, irl_algorithm.data_generator, init_args['gen_args'],
                                           num_samples=2)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                 tracker.track('irl_loss', irl_loss, step_idx)

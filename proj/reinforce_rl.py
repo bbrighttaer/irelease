@@ -193,16 +193,16 @@ class IReLeaSE(Trainer):
         expert_model = init_args['expert_model']
         demo_data_gen = init_args['demo_data_gen']
         best_model_wts = None
+        best_score = 0.
 
-        # set threshold using demonstrations
-        print('Making predictions for demo data...')
-        _, predictions = expert_model(demo_data_gen.random_training_set_smiles(demo_data_gen.file_len))
-        baseline_score = np.mean(predictions)
-        best_score = baseline_score
-        print('Score threshold set using demo data predictions.')
+        print('Setting baseline score...')
+        samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'], num_samples=1000,
+                                  verbose=True)
+        baseline_score = np.mean(expert_model(samples)[1])
 
         # load pretrained model
         if agent_net_path and agent_net_name:
+            print('Loading pretrained model...')
             agent.model.load_state_dict(IReLeaSE.load_model(agent_net_path, agent_net_name))
 
         start = time.time()
@@ -244,11 +244,14 @@ class IReLeaSE(Trainer):
                     tracker.track('total_reward', reward, step_idx)
                     print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
                           f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
-                    samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
+                    samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                               num_samples=100)
                     _, predictions = expert_model.predict(samples)
                     score = np.mean(predictions)
-                    tb_writer.add_scalars('qsar_score', {'gen_score': score, 'baseline': baseline_score}, step_idx)
+                    demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(len(predictions)))[1])
+                    tb_writer.add_scalars('qsar_score', {'sampled': score,
+                                                         'baseline': baseline_score,
+                                                         'demo_data': demo_score}, step_idx)
                     if score >= best_score:
                         best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                           copy.deepcopy(irl_algorithm.model.state_dict())]
@@ -265,7 +268,7 @@ class IReLeaSE(Trainer):
                 print('Fitting models...')
                 irl_loss = irl_algorithm.fit(trajectories)
                 rl_loss = drl_algorithm.fit(exp_trajectories)
-                samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
+                samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                           num_samples=1)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                 tracker.track('irl_loss', irl_loss, step_idx)

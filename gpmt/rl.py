@@ -369,7 +369,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         self.agent_net_init_args = agent_net_init_func_args
 
     @property
-    def generator(self):
+    def data_generator(self):
         return self.demo_gen_data
 
     @torch.enable_grad()
