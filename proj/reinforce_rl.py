@@ -130,10 +130,11 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
+        expert_model = ExpertModel(rf_qsar_predictor, './rf_qsar/')
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=gen_data.all_characters,
                                          device=device,
                                          mc_max_sims=hparams['monte_carlo_N'],
-                                         expert_func=None)
+                                         expert_func=expert_model)
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         gen_data.set_batch_size(hparams['reward_params']['demo_batch_size'])
         irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, gen_data,
@@ -150,7 +151,7 @@ class IReLeaSE(Trainer):
                      'reward_func': reward_function,
                      'gamma': hparams['gamma'],
                      'episodes_to_train': hparams['episodes_to_train'],
-                     'expert_model': ExpertModel(rf_qsar_predictor, './rf_qsar/'),
+                     'expert_model': expert_model,
                      'demo_data_gen': gen_data,
                      'gen_args': {'num_layers': hparams['agent_params']['num_layers'],
                                   'hidden_size': hparams['d_model'],
@@ -263,7 +264,7 @@ class IReLeaSE(Trainer):
 
                 # Train models
                 print('Fitting models...')
-                irl_loss = irl_algorithm.fit(trajectories)
+                irl_loss = 0 # irl_algorithm.fit(trajectories)
                 rl_loss = drl_algorithm.fit(exp_trajectories)
                 samples = generate_smiles(drl_algorithm.model, irl_algorithm.generator, init_args['gen_args'],
                                           num_samples=1)
@@ -351,7 +352,7 @@ def main(flags):
 def default_hparams(args):
     return {'d_model': 1500,
             'dropout': 0.2,
-            'monte_carlo_N': 5,
+            'monte_carlo_N': 2,
             'gamma': 0.95,
             'episodes_to_train': 10,
             'reinforce_batch': 1,

@@ -379,7 +379,7 @@ def main(flags):
 def default_hparams(args):
     return {
         'unit_type': 'gru',
-        'num_layers': 2,
+        'num_layers': 1,
         'dropout': 0.1,
         'd_model': 1500,
         'stack_width': 1500,
