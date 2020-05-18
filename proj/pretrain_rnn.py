@@ -248,12 +248,12 @@ class GpmtPretrain(Trainer):
         count = 0
         for _ in range(int(num_smiles/step)):
             samples.extend(generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
-                                           num_samples=step, is_train=False))
+                                           num_samples=step, is_train=False, verbose=False))
             count += step
         res = num_smiles - count
         if res > 0:
             samples.extend(generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
-                                           num_samples=res, is_train=False))
+                                           num_samples=res, is_train=False, verbose=False))
         smiles, valid_vec = canonical_smiles(samples)
         valid_smiles = []
         for idx, sm in enumerate(smiles):
@@ -359,7 +359,7 @@ def main(flags):
                                                                       gen_data=trainer.data_provider(k, flags)['train'])
             if flags.eval:
                 model.load_state_dict(trainer.load_model(flags.model_dir, flags.eval_model_name))
-                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=100)
+                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=200)
             else:
                 results = trainer.train(model=model,
                                         optimizer=optimizer,

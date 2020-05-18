@@ -504,7 +504,7 @@ class GradStats(object):
 
 
 def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>', max_len=100, num_samples=5,
-                    gen_type='rnn', is_train=True):
+                    gen_type='rnn', is_train=True, verbose=False):
     """
     Generates SMILES strings using the model/generator given.
 
@@ -573,7 +573,11 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
 
     try:
         # Start sampling
-        for i in trange(max_len - 1, desc='Generating SMILES...'):
+        if verbose:
+            loop = trange(max_len - 1, desc='Generating SMILES...')
+        else:
+            loop = range(max_len - 1)
+        for i in loop:
             if gen_type == 'rnn':
                 outputs = generator([inp] + hidden_states)
                 output, hidden_states = outputs[0], outputs[1:]
@@ -608,7 +612,11 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
     # Remove characters after end tokens
     string_samples = []
     new_samples = np.array(new_samples)
-    for i in trange(num_samples, desc='Processing SMILES...'):
+    if verbose:
+        loop = trange(num_samples, desc='Processing SMILES...')
+    else:
+        loop = range(num_samples)
+    for i in loop:
         sample = list(new_samples[:, i])
         if end_token in sample:
             end_token_idx = sample.index(end_token)
