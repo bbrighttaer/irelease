@@ -62,11 +62,12 @@ class RewardFunction:
             A scalar value representing the reward w.r.t. the given state x.
         """
         if use_mc:
-            mc_node = MoleculeMonteCarloTreeSearchNode(x, self, self.mc_policy, self.actions, self.max_len,
-                                                       end_char=self.end_char)
-            mcts = MonteCarloTreeSearch(mc_node)
-            reward = mcts(simulations_number=self.mc_max_sims)
-            return reward
+            # mc_node = MoleculeMonteCarloTreeSearchNode(x, self, self.mc_policy, self.actions, self.max_len,
+            #                                            end_char=self.end_char)
+            # mcts = MonteCarloTreeSearch(mc_node)
+            # reward = mcts(simulations_number=self.mc_max_sims)
+            # return reward
+            return 0.0
         else:
             # Get reward of completed string using the reward net
             state = x[1:-1]
@@ -82,7 +83,7 @@ class RewardFunction:
                 reward = np.exp(pred[0] / 3)
             else:
                 reward = 0.0
-            return np.log(1 + reward)
+            return reward
 
     def expert_reward(self, x):
         if self.expert_func:
