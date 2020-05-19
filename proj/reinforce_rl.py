@@ -262,7 +262,6 @@ class IReLeaSE(Trainer):
                         best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                           copy.deepcopy(irl_algorithm.model.state_dict())]
                         best_score = score
-                    step_idx += 1
 
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                               num_samples=1)
@@ -273,6 +272,7 @@ class IReLeaSE(Trainer):
                     # Reset
                     trajectories.clear()
                     exp_trajectories.clear()
+                    step_idx += 1
 
         drl_algorithm.model.load_state_dict(best_model_wts[0])
         irl_algorithm.model.load_state_dict(best_model_wts[1])
