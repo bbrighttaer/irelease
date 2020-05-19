@@ -79,7 +79,7 @@ class RewardFunction:
             # reward = self.model([inp, valid_vec]).squeeze().item()
             # # reward = self.model(state).squeeze().item()
             if len(state) > 0 and valid_vec[0] == 1:
-                _, pred = self.expert_func([smiles])
+                _, pred = self.expert_func(smiles)
                 reward = np.exp(pred[0] / 3)
             else:
                 reward = 0.0
