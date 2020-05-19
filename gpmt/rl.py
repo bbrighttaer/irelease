@@ -181,7 +181,8 @@ class REINFORCE(DRLAlgorithm):
         """
         rl_loss = 0.
         count = 0.
-        for trajectory in trajectories:
+        for t in trange(len(trajectories), desc='REINFORCE opt...'):
+            trajectory = trajectories[t]
             states, actions, q_values = unpack_trajectory(trajectory, self.gamma)
             (states, state_len), actions = _preprocess_states_actions(actions, states, self.device)
             hidden_states = self.initial_states_func(1, **self.initial_states_args)
