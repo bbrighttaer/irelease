@@ -77,12 +77,12 @@ class RewardFunction:
             # inp = torch.from_numpy(inp).long().to(self.device)
             # reward = self.model([inp, valid_vec]).squeeze().item()
             # # reward = self.model(state).squeeze().item()
-            if len(state) > 1 and valid_vec[0] == 1:
+            if len(state) > 0 and valid_vec[0] == 1:
                 _, pred = self.expert_func([smiles])
-                reward = np.exp(pred[0] / 3) / 100.
+                reward = np.exp(pred[0] / 3)
             else:
                 reward = 0.0
-            return reward
+            return np.log(1 + reward)
 
     def expert_reward(self, x):
         if self.expert_func:

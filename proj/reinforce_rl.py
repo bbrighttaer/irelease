@@ -39,7 +39,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -116,7 +116,7 @@ class IReLeaSE(Trainer):
                             initial_states_args=init_state_args,
                             device=device,
                             gamma=hparams['gamma'],
-                            grad_clipping=hparams['reinforce_max_norm'],
+                            grad_clipping=None,  # hparams['reinforce_max_norm'],
                             lr_decay_gamma=hparams['lr_decay_gamma'],
                             lr_decay_step=hparams['lr_decay_step_size'])
 
@@ -360,7 +360,7 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 15,
+    return {'d_model': 1500,
             'dropout': 0.2,
             'monte_carlo_N': 5,
             'gamma': 0.97,
@@ -378,7 +378,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 15,
+                             'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
