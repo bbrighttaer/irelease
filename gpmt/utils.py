@@ -418,6 +418,16 @@ def get_default_tokens():
     return tokens
 
 
+def char_to_tensor(string, device, tokens=None):
+    if tokens is None:
+        tokens = get_default_tokens()
+    tensor = torch.zeros(len(string)).long()
+    for c in range(len(string)):
+        tensor[c] = tokens.index(string[c])
+    tensor = tensor.to(device)
+    return tensor.clone()
+
+
 def parse_optimizer(hparams, model):
     """
     Creates an optimizer for the given model using the argumentes specified in

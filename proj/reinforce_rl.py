@@ -20,7 +20,7 @@ from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
@@ -216,42 +216,39 @@ class IReLeaSE(Trainer):
         total_rewards = []
         trajectories = []
         done_episodes = 0
-        batch_episodes = 0
         exp_trajectories = []
         step_idx = 0
 
-        env = MoleculeEnv(actions=get_default_tokens(), reward_func=reward_func)
-        exp_source = ExperienceSourceFirstLast(env, agent, gamma, steps_count=1, steps_delta=1)
-        traj_prob = 1.
-        exp_traj = []
-
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-
+        n_iterations = 100
+        n_policy = 15
+        n_batch = 10
+        n_to_generate = 200
         with TBMeanTracker(tb_writer, 1) as tracker:
-            for step_idx, exp in tqdm(enumerate(exp_source)):
-                exp_traj.append(exp)
-                traj_prob *= probs_reg.get(list(exp.state), exp.action)
-
-                if exp.last_state is None:
-                    trajectories.append(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action),
-                                                   traj_prob=traj_prob))
-                    exp_trajectories.append(exp_traj)  # for ExperienceFirstLast objects
-                    exp_traj = []
-                    traj_prob = 1.
-                    probs_reg.clear()
-                    batch_episodes += 1
-
-                new_rewards = exp_source.pop_total_rewards()
-                if new_rewards:
-                    reward = new_rewards[0]
-                    done_episodes += 1
-                    total_rewards.append(reward)
-                    mean_rewards = float(np.mean(total_rewards[-100:]))
-                    tracker.track('mean_total_reward', mean_rewards, step_idx)
-                    tracker.track('total_reward', reward, step_idx)
-                    print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
-                          f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
+            for i in range(n_iterations):
+                for j in trange(n_policy, desc='Policy gradient...'):
+                    for _ in range(n_batch):
+                        reward = 0
+                        while reward == 0:
+                            with torch.set_grad_enabled(False):
+                                traj, valid = canonical_smiles(generate_smiles(drl_algorithm.model,
+                                                                               demo_data_gen, init_args['gen_args'],
+                                                                               num_samples=1))
+                            if valid[0] == 1:
+                                _, reward = expert_model.predict(traj)
+                                reward = float(reward)
+                                total_rewards.append(reward)
+                                trajectories.append((traj[0], reward))
+                            else:
+                                reward = 0
+                    irl_loss = 0
+                    rl_loss = drl_algorithm.fit(trajectories)
+                    done_episodes += len(trajectories)
+                    mean_rewards = float(np.mean(total_rewards[-n_batch:]))
+                    tracker.track('total_reward', mean_rewards, step_idx)
+                    print(f'Time = {time_since(start)}, step = {step_idx}, mean_100 = {mean_rewards:6.2f}, '
+                          f'episodes = {done_episodes}')
                     with torch.set_grad_enabled(False):
                         samples, _ = canonical_smiles(generate_smiles(drl_algorithm.model,
                                                                       demo_data_gen, init_args['gen_args'],
@@ -265,18 +262,11 @@ class IReLeaSE(Trainer):
                         best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                           copy.deepcopy(irl_algorithm.model.state_dict())]
                         best_score = score
+                    step_idx += 1
 
                     if done_episodes == n_episodes:
                         print('Training completed!')
                         break
-
-                if batch_episodes < episodes_to_train:
-                    continue
-
-                # Train models
-                print('Fitting models...')
-                irl_loss = 0  # irl_algorithm.fit(trajectories)
-                rl_loss = drl_algorithm.fit(exp_trajectories)
                 samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                           num_samples=1)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
@@ -284,7 +274,6 @@ class IReLeaSE(Trainer):
                 tracker.track('agent_loss', rl_loss, step_idx)
 
                 # Reset
-                batch_episodes = 0
                 trajectories.clear()
                 exp_trajectories.clear()
 
