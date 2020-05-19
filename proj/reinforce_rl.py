@@ -17,19 +17,17 @@ import numpy as np
 import torch
 import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
-from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm, trange
+from tqdm import trange
 
 from gpmt.data import GeneratorData
-from gpmt.env import MoleculeEnv
-from gpmt.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
+from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     RewardNetRNN, ExpertModel
 from gpmt.predictor import rf_qsar_predictor
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
-    StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
+    StateActionProbRegistry, REINFORCE
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles, canonical_smiles
 
@@ -86,8 +84,8 @@ class IReLeaSE(Trainer):
                                        stack_width=hparams['agent_params']['stack_width'],
                                        stack_depth=hparams['agent_params']['stack_depth'],
                                        k_mask_func=encoder.k_padding_mask))
-            rnn_layers.append(StackedRNNDropout(hparams['dropout']))
-            rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
+            # rnn_layers.append(StackedRNNDropout(hparams['dropout']))
+            # rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
         agent_net = nn.Sequential(encoder,
                                   *rnn_layers,
                                   StackRNNLinear(out_dim=demo_data_gen.n_characters,
@@ -209,6 +207,7 @@ class IReLeaSE(Trainer):
         if agent_net_path and agent_net_name:
             print('Loading pretrained model...')
             agent.model.load_state_dict(IReLeaSE.load_model(agent_net_path, agent_net_name))
+            print('Pretrained model loaded successfully!')
 
         start = time.time()
 
@@ -232,9 +231,9 @@ class IReLeaSE(Trainer):
                         reward = 0
                         while reward == 0:
                             with torch.set_grad_enabled(False):
-                                traj, valid = canonical_smiles(generate_smiles(drl_algorithm.model,
-                                                                               demo_data_gen, init_args['gen_args'],
-                                                                               num_samples=1))
+                                smiles = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                                                         num_samples=1)
+                                traj, valid = canonical_smiles(smiles)
                             if valid[0] == 1:
                                 _, reward = expert_model.predict(traj)
                                 reward = float(reward)
@@ -264,7 +263,7 @@ class IReLeaSE(Trainer):
                         best_score = score
 
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                              num_samples=1)
+                                              num_samples=3)
                     print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                     tracker.track('irl_loss', irl_loss, step_idx)
                     tracker.track('agent_loss', rl_loss, step_idx)
@@ -351,7 +350,7 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 1500,
-            'dropout': 0.2,
+            'dropout': 0.0,
             'monte_carlo_N': 5,
             'gamma': 0.97,
             'episodes_to_train': 10,
@@ -367,7 +366,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 2,
+                             'num_layers': 1,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',

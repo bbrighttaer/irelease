@@ -1,13 +1,12 @@
 # Original code from: https://github.com/isayev/ReLeaSE
 
-import os
 import csv
-import time
 import math
-import numpy as np
+import time
 import warnings
+
+import numpy as np
 import torch
-import pickle
 from rdkit import Chem
 from rdkit import DataStructs
 from rdkit import RDLogger
@@ -631,6 +630,8 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
         if end_token in sample:
             end_token_idx = sample.index(end_token)
             string_samples.append(''.join(sample[1:end_token_idx]))
+        else:
+            string_samples.append(sample[1:])
     return string_samples
 
 
