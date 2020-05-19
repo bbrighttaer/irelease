@@ -252,7 +252,7 @@ class IReLeaSE(Trainer):
                     with torch.set_grad_enabled(False):
                         samples, _ = canonical_smiles(generate_smiles(drl_algorithm.model,
                                                                       demo_data_gen, init_args['gen_args'],
-                                                                      num_samples=200))
+                                                                      num_samples=n_to_generate))
                     _, predictions = expert_model.predict(samples)
                     score = np.mean(predictions)
                     tb_writer.add_scalars('qsar_score', {'sampled': score,
@@ -264,21 +264,20 @@ class IReLeaSE(Trainer):
                         best_score = score
                     step_idx += 1
 
-                    if done_episodes == n_episodes:
-                        print('Training completed!')
-                        break
-                samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                          num_samples=1)
-                print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
-                tracker.track('irl_loss', irl_loss, step_idx)
-                tracker.track('agent_loss', rl_loss, step_idx)
+                    samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                                              num_samples=1)
+                    print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
+                    tracker.track('irl_loss', irl_loss, step_idx)
+                    tracker.track('agent_loss', rl_loss, step_idx)
 
-                # Reset
-                trajectories.clear()
-                exp_trajectories.clear()
+                    # Reset
+                    trajectories.clear()
+                    exp_trajectories.clear()
 
         drl_algorithm.model.load_state_dict(best_model_wts[0])
         irl_algorithm.model.load_state_dict(best_model_wts[1])
+        duration = time.time() - start
+        print('\nTraining duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
         return {'model': [drl_algorithm.model, irl_algorithm.model],
                 'score': round(best_score, 3),
                 'epoch': done_episodes}
