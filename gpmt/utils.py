@@ -571,40 +571,40 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
     if inp.ndim == 1:
         inp = inp.view(-1, 1)
 
-    try:
-        # Start sampling
-        if verbose:
-            loop = trange(max_len - 1, desc='Generating SMILES...')
-        else:
-            loop = range(max_len - 1)
-        for i in loop:
-            if gen_type == 'rnn':
-                outputs = generator([inp] + hidden_states)
-                output, hidden_states = outputs[0], outputs[1:]
-                output = output.detach().cpu()
-            elif gen_type == 'trans':
-                stack = init_stack_2d(num_samples, inp.shape[-1], init_args['stack_depth'],
-                                      init_args['stack_width'],
-                                      dvc=init_args['device'])
-                output = generator([inp, stack])[-1, :, :]
-                output = output.detach().cpu()
+    # try:
+    # Start sampling
+    if verbose:
+        loop = trange(max_len - 1, desc='Generating SMILES...')
+    else:
+        loop = range(max_len - 1)
+    for i in loop:
+        if gen_type == 'rnn':
+            outputs = generator([inp] + hidden_states)
+            output, hidden_states = outputs[0], outputs[1:]
+            output = output.detach().cpu()
+        elif gen_type == 'trans':
+            stack = init_stack_2d(num_samples, inp.shape[-1], init_args['stack_depth'],
+                                  init_args['stack_width'],
+                                  dvc=init_args['device'])
+            output = generator([inp, stack])[-1, :, :]
+            output = output.detach().cpu()
 
-            # Sample the next character from the generator
-            probs = torch.softmax(output.view(-1, output.shape[-1]), dim=-1).detach()
-            top_i = torch.multinomial(probs, 1).cpu().numpy()
+        # Sample the next character from the generator
+        probs = torch.softmax(output.view(-1, output.shape[-1]), dim=-1).detach()
+        top_i = torch.multinomial(probs, 1).cpu().numpy()
 
-            # Add predicated character to string and use as next input.
-            predicted_char = (np.array(gen_data.all_characters)[top_i].reshape(-1))
-            predicted_char = predicted_char.tolist()
-            new_samples.append(predicted_char)
+        # Add predicated character to string and use as next input.
+        predicted_char = (np.array(gen_data.all_characters)[top_i].reshape(-1))
+        predicted_char = predicted_char.tolist()
+        new_samples.append(predicted_char)
 
-            # Prepare next input token for the generator
-            if gen_type == 'trans':
-                predicted_char = np.array(new_samples).transpose()
-            inp, _ = seq2tensor(predicted_char, tokens=gen_data.all_characters)
-            inp = torch.from_numpy(inp).long().to(init_args['device'])
-    except:
-        print('SMILES generation error')
+        # Prepare next input token for the generator
+        if gen_type == 'trans':
+            predicted_char = np.array(new_samples).transpose()
+        inp, _ = seq2tensor(predicted_char, tokens=gen_data.all_characters)
+        inp = torch.from_numpy(inp).long().to(init_args['device'])
+    # except:
+    #     print('SMILES generation error')
 
     if is_train:
         generator.train()
