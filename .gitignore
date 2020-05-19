@@ -69,6 +69,7 @@ out/
 irelease/
 
 rf_qsar/
+qsar_rf-*/
 
 # mpeltonen/sbt-idea plugin
 .idea_modules/
