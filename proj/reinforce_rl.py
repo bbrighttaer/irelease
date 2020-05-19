@@ -225,6 +225,9 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
+        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
+        baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
+
         with TBMeanTracker(tb_writer, 1) as tracker:
             for step_idx, exp in tqdm(enumerate(exp_source)):
                 exp_traj.append(exp)
@@ -250,12 +253,9 @@ class IReLeaSE(Trainer):
                     print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
                           f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                              num_samples=100)
+                                              num_samples=200)
                     _, predictions = expert_model.predict(samples)
                     score = np.mean(predictions)
-                    demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(len(predictions)))[1])
-                    baseline_score = np.mean(
-                        expert_model(unbiased_data_gen.random_training_set_smiles(len(predictions)))[1])
                     tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                          'baseline': baseline_score,
                                                          'demo_data': demo_score}, step_idx)
