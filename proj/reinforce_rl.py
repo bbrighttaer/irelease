@@ -116,7 +116,6 @@ class IReLeaSE(Trainer):
                             initial_states_args=init_state_args,
                             device=device,
                             gamma=hparams['gamma'],
-                            reinforce_batch=hparams['reinforce_batch'],
                             grad_clipping=hparams['reinforce_max_norm'],
                             lr_decay_gamma=hparams['lr_decay_gamma'],
                             lr_decay_step=hparams['lr_decay_step_size'])
@@ -361,12 +360,11 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 15,
+    return {'d_model': 1500,
             'dropout': 0.2,
-            'monte_carlo_N': 2,
+            'monte_carlo_N': 5,
             'gamma': 0.95,
             'episodes_to_train': 10,
-            'reinforce_batch': 1,
             'reinforce_max_norm': 10,
             'lr_decay_gamma': 0.1,
             'lr_decay_step_size': 100,
@@ -380,7 +378,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 15,
+                             'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
