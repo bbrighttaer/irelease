@@ -116,7 +116,6 @@ class IReLeaSE(Trainer):
                             initial_states_args=init_state_args,
                             device=device,
                             gamma=hparams['gamma'],
-                            reinforce_batch=hparams['reinforce_batch'],
                             grad_clipping=hparams['reinforce_max_norm'],
                             lr_decay_gamma=hparams['lr_decay_gamma'],
                             lr_decay_step=hparams['lr_decay_step_size'])
@@ -345,7 +344,7 @@ def main(flags):
             init_args = irelease.initialize(hyper_params, data_gens['train'], data_gens['test'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=5000,
+                                     n_episodes=10000,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -363,13 +362,12 @@ def main(flags):
 def default_hparams(args):
     return {'d_model': 1500,
             'dropout': 0.2,
-            'monte_carlo_N': 2,
-            'gamma': 0.95,
+            'monte_carlo_N': 5,
+            'gamma': 0.97,
             'episodes_to_train': 10,
-            'reinforce_batch': 10,
             'reinforce_max_norm': 10,
             'lr_decay_gamma': 0.1,
-            'lr_decay_step_size': 100,
+            'lr_decay_step_size': 1000,
             'reward_params': {'num_layers': 1,
                               'd_model': 128,
                               'unit_type': 'gru',
