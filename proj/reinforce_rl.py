@@ -31,7 +31,7 @@ from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles
+    time_since, generate_smiles, canonical_smiles
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -253,8 +253,9 @@ class IReLeaSE(Trainer):
                     print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
                           f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
                     with torch.set_grad_enabled(False):
-                        samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                                  num_samples=200)
+                        samples, _ = canonical_smiles(generate_smiles(drl_algorithm.model,
+                                                                      demo_data_gen, init_args['gen_args'],
+                                                                      num_samples=200))
                     _, predictions = expert_model.predict(samples)
                     score = np.mean(predictions)
                     tb_writer.add_scalars('qsar_score', {'sampled': score,
