@@ -17,19 +17,17 @@ import numpy as np
 import torch
 import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
-from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm, trange
+from tqdm import trange
 
 from gpmt.data import GeneratorData
-from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
     RewardNetRNN, ExpertModel
 from gpmt.predictor import rf_qsar_predictor
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
-    StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
+    StateActionProbRegistry, REINFORCE
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles, canonical_smiles
 
@@ -213,10 +211,10 @@ class IReLeaSE(Trainer):
         start = time.time()
 
         # Begin simulation and training
-        total_rewards = []
         trajectories = []
         done_episodes = 0
         exp_trajectories = []
+        total_rewards = []
         step_idx = 0
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
@@ -232,11 +230,15 @@ class IReLeaSE(Trainer):
                         reward = 0
                         while reward == 0:
                             with torch.set_grad_enabled(False):
-                                traj, valid = canonical_smiles(generate_smiles(drl_algorithm.model,
-                                                                               demo_data_gen, init_args['gen_args'],
-                                                                               num_samples=1))
+                                smiles = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                                                         num_samples=1)
+                                if len(smiles) == 0:
+                                    continue
+                                traj, valid = canonical_smiles(smiles)
                             if valid[0] == 1:
                                 _, reward = expert_model.predict(traj)
+                                if len(reward) == 0:
+                                    continue
                                 reward = float(reward)
                                 total_rewards.append(reward)
                                 trajectories.append((traj[0], reward))
@@ -245,7 +247,7 @@ class IReLeaSE(Trainer):
                     irl_loss = 0
                     rl_loss = drl_algorithm.fit(trajectories)
                     done_episodes += len(trajectories)
-                    mean_rewards = float(np.mean(total_rewards[-n_batch:]))
+                    mean_rewards = np.mean(total_rewards[-100:])
                     tracker.track('total_reward', mean_rewards, step_idx)
                     print(f'Time = {time_since(start)}, step = {step_idx}, mean_100 = {mean_rewards:6.2f}, '
                           f'episodes = {done_episodes}')
@@ -264,7 +266,7 @@ class IReLeaSE(Trainer):
                         best_score = score
 
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                              num_samples=1)
+                                              num_samples=5)
                     print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                     tracker.track('irl_loss', irl_loss, step_idx)
                     tracker.track('agent_loss', rl_loss, step_idx)
@@ -351,7 +353,7 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 1500,
-            'dropout': 0.2,
+            'dropout': 0.0,
             'monte_carlo_N': 5,
             'gamma': 0.97,
             'episodes_to_train': 10,
@@ -371,7 +373,7 @@ def default_hparams(args):
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
-                             'optimizer__global__weight_decay': 0.00005,
+                             # 'optimizer__global__weight_decay': 0.00005,
                              'optimizer__global__lr': 0.001}
             }
 

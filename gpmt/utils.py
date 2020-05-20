@@ -444,7 +444,9 @@ def parse_optimizer(hparams, model):
         "adadelta": torch.optim.Adadelta,
         "adagrad": torch.optim.Adagrad,
         "adam": torch.optim.Adam,
-        "Rprop": torch.optim.Rprop,
+        "rmsprop": torch.optim.RMSprop,
+        "adamax": torch.optim.Adamax,
+        "rprop": torch.optim.Rprop,
         "sgd": torch.optim.SGD,
     }.get(hparams["optimizer"].lower(), None)
     assert optimizer is not None, "{} optimizer could not be found"
