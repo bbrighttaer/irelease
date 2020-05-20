@@ -633,7 +633,7 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
             end_token_idx = sample.index(end_token)
             string_samples.append(''.join(sample[1:end_token_idx]))
         else:
-            string_samples.append(sample[1:])
+            string_samples.append(''.join(sample[1:]))
     return string_samples
 
 

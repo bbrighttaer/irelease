@@ -125,6 +125,13 @@ class VanillaQSAR(object):
         return smiles, prediction
 
 
+def get_reward_jak2_max(smiles, predictor, invalid_reward=0.0):
+    mol, prop, nan_smiles = predictor._predict(smiles, get_features=get_fp)
+    if len(nan_smiles) == 1:
+        return invalid_reward
+    return np.exp(prop[0] / 3)
+
+
 # Model used in https://github.com/isayev/ReLeaSE/blob/master/JAK2_min_max_demo.ipynb
 rf_qsar_predictor = VanillaQSAR(model_instance=RFR,
                                 model_params={'n_estimators': 250, 'n_jobs': 10},
