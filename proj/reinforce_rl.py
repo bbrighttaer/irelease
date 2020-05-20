@@ -234,9 +234,9 @@ class IReLeaSE(Trainer):
                                 smiles = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                                          num_samples=1)
                             reward = get_reward_jak2_max(smiles, rf_qsar_predictor)
-                            total_rewards.append(reward)
-                            trajectories.append((smiles[0], reward))
-                    irl_loss = 0
+                        total_rewards.append(reward)
+                        trajectories.append((smiles[0], reward))
+                    irl_loss = 0  # irl_algorithm.fit(trajectories)
                     rl_loss = drl_algorithm.fit(trajectories)
                     done_episodes += len(trajectories)
                     mean_rewards = float(np.mean(total_rewards[-100:]))
@@ -262,7 +262,7 @@ class IReLeaSE(Trainer):
                     print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                     tracker.track('irl_loss', irl_loss, step_idx)
                     tracker.track('agent_loss', rl_loss, step_idx)
-    
+
                     # Reset
                     trajectories.clear()
                     exp_trajectories.clear()
