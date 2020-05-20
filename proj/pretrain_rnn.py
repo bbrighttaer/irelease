@@ -379,8 +379,8 @@ def main(flags):
 def default_hparams(args):
     return {
         'unit_type': 'gru',
-        'num_layers': 2,
-        'dropout': 0.1,
+        'num_layers': 1,
+        'dropout': 0.0,
         'd_model': 1500,
         'stack_width': 1500,
         'stack_depth': 200,
@@ -388,7 +388,7 @@ def default_hparams(args):
 
         # optimizer params
         'optimizer': 'adadelta',
-        'optimizer__global__weight_decay': 0.00005,
+        # 'optimizer__global__weight_decay': 0.00005,
         'optimizer__global__lr': 0.001,
     }
 

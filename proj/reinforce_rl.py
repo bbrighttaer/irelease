@@ -212,10 +212,10 @@ class IReLeaSE(Trainer):
         start = time.time()
 
         # Begin simulation and training
-        total_rewards = []
         trajectories = []
         done_episodes = 0
         exp_trajectories = []
+        total_rewards = []
         step_idx = 0
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
