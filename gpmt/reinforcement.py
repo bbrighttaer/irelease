@@ -106,7 +106,7 @@ class Reinforcement(object):
             reward = 0
             trajectory = '<>'
             while reward == 0:
-                trajectory = generate_smiles(self.generator, gen_data, init_args, num_samples=1)
+                trajectory = generate_smiles(self.generator, gen_data, init_args, num_samples=1)[0]
                 if std_smiles:
                     try:
                         mol = Chem.MolFromSmiles(trajectory)
