@@ -25,6 +25,7 @@ from gpmt.data import GeneratorData
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     RewardNetRNN, ExpertModel
 from gpmt.predictor import rf_qsar_predictor, get_reward_jak2_max
+from gpmt.reinforcement import Reinforcement
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, REINFORCE
@@ -224,21 +225,28 @@ class IReLeaSE(Trainer):
         n_policy = 15
         n_batch = 10
         n_to_generate = 200
+        reinforcement = Reinforcement(drl_algorithm.model, drl_algorithm.optimizer, rf_qsar_predictor,
+                                      get_reward_jak2_max)
+        rl_losses = []
         with TBMeanTracker(tb_writer, 1) as tracker:
             for i in range(n_iterations):
                 for j in trange(n_policy, desc='Policy gradient...'):
-                    for _ in range(n_batch):
-                        reward = 0
-                        while reward == 0:
-                            with torch.set_grad_enabled(False):
-                                smiles = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                                         num_samples=1)
-                            reward = get_reward_jak2_max(smiles, rf_qsar_predictor)
-                        total_rewards.append(reward)
-                        trajectories.append((smiles[0], reward))
-                    irl_loss = 0  # irl_algorithm.fit(trajectories)
-                    rl_loss = drl_algorithm.fit(trajectories)
-                    done_episodes += len(trajectories)
+                    # for _ in range(n_batch):
+                    #     reward = 0
+                    #     while reward == 0:
+                    #         with torch.set_grad_enabled(False):
+                    #             smiles = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                    #                                      num_samples=1)
+                    #         reward = get_reward_jak2_max(smiles, rf_qsar_predictor)
+                    #     total_rewards.append(reward)
+                    #     trajectories.append((smiles[0], reward))
+                    # irl_loss = 0  # irl_algorithm.fit(trajectories)
+                    # rl_loss = drl_algorithm.fit(trajectories)
+                    irl_loss = 0
+                    cur_reward, rl_loss = reinforcement.policy_gradient(demo_data_gen, init_args, n_batch)
+                    total_rewards.append(simple_moving_average(total_rewards, cur_reward))
+                    # rl_losses.append(simple_moving_average(rl_losses, rl_loss))
+                    done_episodes += n_batch
                     mean_rewards = float(np.mean(total_rewards[-100:]))
                     tracker.track('total_reward', mean_rewards, step_idx)
                     print(f'Time = {time_since(start)}, step = {step_idx}, mean_100 = {mean_rewards:6.2f}, '
@@ -249,6 +257,8 @@ class IReLeaSE(Trainer):
                                                                       num_samples=n_to_generate))
                     _, predictions = expert_model.predict(samples)
                     score = np.mean(predictions)
+                    print("Mean value of predictions:", predictions.mean())
+                    print("Proportion of valid SMILES:", len(predictions) / n_to_generate)
                     tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                          'baseline': baseline_score,
                                                          'demo_data': demo_score}, step_idx)
@@ -289,6 +299,12 @@ class IReLeaSE(Trainer):
     @staticmethod
     def load_model(path, name):
         return torch.load(os.path.join(path, name), map_location=torch.device(device))
+
+
+def simple_moving_average(previous_values, new_value, ma_window_size=10):
+    value_ma = np.sum(previous_values[-(ma_window_size - 1):]) + new_value
+    value_ma = value_ma / (len(previous_values[-(ma_window_size - 1):]) + 1)
+    return value_ma
 
 
 def main(flags):
@@ -344,7 +360,7 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 1500,
+    return {'d_model': 15,
             'dropout': 0.0,
             'monte_carlo_N': 5,
             'gamma': 0.97,
@@ -362,7 +378,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
-                             'stack_width': 1500,
+                             'stack_width': 15,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              # 'optimizer__global__weight_decay': 0.00005,
