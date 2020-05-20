@@ -22,8 +22,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 
 from gpmt.data import GeneratorData
-from gpmt.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
-    RewardNetRNN, ExpertModel
+from gpmt.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN, ExpertModel
 from gpmt.predictor import rf_qsar_predictor
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
@@ -84,8 +83,8 @@ class IReLeaSE(Trainer):
                                        stack_width=hparams['agent_params']['stack_width'],
                                        stack_depth=hparams['agent_params']['stack_depth'],
                                        k_mask_func=encoder.k_padding_mask))
-            rnn_layers.append(StackedRNNDropout(hparams['dropout']))
-            rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
+            # rnn_layers.append(StackedRNNDropout(hparams['dropout']))
+            # rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
         agent_net = nn.Sequential(encoder,
                                   *rnn_layers,
                                   StackRNNLinear(out_dim=demo_data_gen.n_characters,
@@ -207,6 +206,7 @@ class IReLeaSE(Trainer):
         if agent_net_path and agent_net_name:
             print('Loading pretrained model...')
             agent.model.load_state_dict(IReLeaSE.load_model(agent_net_path, agent_net_name))
+            print('Pretrained model loaded successfully!')
 
         start = time.time()
 
@@ -232,8 +232,6 @@ class IReLeaSE(Trainer):
                             with torch.set_grad_enabled(False):
                                 smiles = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                                          num_samples=1)
-                                if len(smiles) == 0:
-                                    continue
                                 traj, valid = canonical_smiles(smiles)
                             if valid[0] == 1:
                                 _, reward = expert_model.predict(traj)
@@ -266,7 +264,7 @@ class IReLeaSE(Trainer):
                         best_score = score
 
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                              num_samples=5)
+                                              num_samples=3)
                     print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                     tracker.track('irl_loss', irl_loss, step_idx)
                     tracker.track('agent_loss', rl_loss, step_idx)
@@ -369,7 +367,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 2,
+                             'num_layers': 1,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
