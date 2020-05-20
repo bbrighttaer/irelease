@@ -126,6 +126,8 @@ class VanillaQSAR(object):
 
 
 def get_reward_jak2_max(smiles, predictor, invalid_reward=0.0):
+    if isinstance(smiles, str):
+        smiles = [smiles]
     mol, prop, nan_smiles = predictor._predict(smiles, get_features=get_fp)
     if len(nan_smiles) == 1:
         return invalid_reward

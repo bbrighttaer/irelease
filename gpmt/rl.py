@@ -185,11 +185,11 @@ class REINFORCE(DRLAlgorithm):
             smiles, discounted_reward = trajectory
             trajectory_input = char_to_tensor(smiles, self.device)
             hidden_states = self.initial_states_func(1, **self.initial_states_args)
-            for p in range(len(trajectory_input)-1):
+            for p in range(len(trajectory_input) - 1):
                 outputs = self.model([trajectory_input[p].reshape(1, 1)] + hidden_states)
                 output, hidden_states = outputs[0], outputs[1:]
                 log_prob = torch.log_softmax(output.view(1, -1), dim=1)
-                top_i = trajectory_input[p+1]
+                top_i = trajectory_input[p + 1]
                 rl_loss -= (discounted_reward * log_prob[0, top_i])
                 discounted_reward = discounted_reward * self.gamma
         rl_loss = rl_loss / len(trajectories)
@@ -365,7 +365,6 @@ class PPO(DRLAlgorithm):
                     log_prob = torch.log_softmax(output.view(1, -1), dim=1)
                     old_probs.append(log_prob[0, actions[p]].item())
                 t_old_probs.append(old_probs)
-
 
 
 class GuidedRewardLearningIRL(DRLAlgorithm):

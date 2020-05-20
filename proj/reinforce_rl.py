@@ -226,7 +226,7 @@ class IReLeaSE(Trainer):
         n_batch = 10
         n_to_generate = 200
         reinforcement = Reinforcement(drl_algorithm.model, drl_algorithm.optimizer, rf_qsar_predictor,
-                                      get_reward_jak2_max)
+                                      get_reward_jak2_max, device)
         rl_losses = []
         with TBMeanTracker(tb_writer, 1) as tracker:
             for i in range(n_iterations):
@@ -243,7 +243,7 @@ class IReLeaSE(Trainer):
                     # irl_loss = 0  # irl_algorithm.fit(trajectories)
                     # rl_loss = drl_algorithm.fit(trajectories)
                     irl_loss = 0
-                    cur_reward, rl_loss = reinforcement.policy_gradient(demo_data_gen, init_args, n_batch)
+                    cur_reward, rl_loss = reinforcement.policy_gradient(demo_data_gen, init_args['gen_args'], n_batch)
                     total_rewards.append(simple_moving_average(total_rewards, cur_reward))
                     # rl_losses.append(simple_moving_average(rl_losses, rl_loss))
                     done_episodes += n_batch

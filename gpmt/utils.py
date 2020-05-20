@@ -563,8 +563,6 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
             else:
                 stack = None
             hidden_states.append((hidden, cell, stack))
-        else:
-            stack = None
 
     prime_input, _ = seq2tensor([prime_str] * num_samples, tokens=gen_data.all_characters, flip=False)
     prime_input = torch.from_numpy(prime_input).long().to(init_args['device'])
