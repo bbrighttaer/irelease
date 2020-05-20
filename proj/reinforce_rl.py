@@ -239,7 +239,7 @@ class IReLeaSE(Trainer):
                     irl_loss = 0
                     rl_loss = drl_algorithm.fit(trajectories)
                     done_episodes += len(trajectories)
-                    mean_rewards = float(np.mean(total_rewards[-n_batch:]))
+                    mean_rewards = float(np.mean(total_rewards[-100:]))
                     tracker.track('total_reward', mean_rewards, step_idx)
                     print(f'Time = {time_since(start)}, step = {step_idx}, mean_100 = {mean_rewards:6.2f}, '
                           f'episodes = {done_episodes}')
