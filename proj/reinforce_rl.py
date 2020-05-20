@@ -236,37 +236,37 @@ class IReLeaSE(Trainer):
                             reward = get_reward_jak2_max(smiles, rf_qsar_predictor)
                             total_rewards.append(reward)
                             trajectories.append((smiles[0], reward))
-                irl_loss = 0
-                rl_loss = drl_algorithm.fit(trajectories)
-                done_episodes += len(trajectories)
-                mean_rewards = float(np.mean(total_rewards[-n_batch:]))
-                tracker.track('total_reward', mean_rewards, step_idx)
-                print(f'Time = {time_since(start)}, step = {step_idx}, mean_100 = {mean_rewards:6.2f}, '
-                      f'episodes = {done_episodes}')
-                with torch.set_grad_enabled(False):
-                    samples, _ = canonical_smiles(generate_smiles(drl_algorithm.model,
-                                                                  demo_data_gen, init_args['gen_args'],
-                                                                  num_samples=n_to_generate))
-                _, predictions = expert_model.predict(samples)
-                score = np.mean(predictions)
-                tb_writer.add_scalars('qsar_score', {'sampled': score,
-                                                     'baseline': baseline_score,
-                                                     'demo_data': demo_score}, step_idx)
-                if score >= best_score:
-                    best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
-                                      copy.deepcopy(irl_algorithm.model.state_dict())]
-                    best_score = score
+                    irl_loss = 0
+                    rl_loss = drl_algorithm.fit(trajectories)
+                    done_episodes += len(trajectories)
+                    mean_rewards = float(np.mean(total_rewards[-n_batch:]))
+                    tracker.track('total_reward', mean_rewards, step_idx)
+                    print(f'Time = {time_since(start)}, step = {step_idx}, mean_100 = {mean_rewards:6.2f}, '
+                          f'episodes = {done_episodes}')
+                    with torch.set_grad_enabled(False):
+                        samples, _ = canonical_smiles(generate_smiles(drl_algorithm.model,
+                                                                      demo_data_gen, init_args['gen_args'],
+                                                                      num_samples=n_to_generate))
+                    _, predictions = expert_model.predict(samples)
+                    score = np.mean(predictions)
+                    tb_writer.add_scalars('qsar_score', {'sampled': score,
+                                                         'baseline': baseline_score,
+                                                         'demo_data': demo_score}, step_idx)
+                    if score >= best_score:
+                        best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
+                                          copy.deepcopy(irl_algorithm.model.state_dict())]
+                        best_score = score
 
-                samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                          num_samples=3)
-                print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
-                tracker.track('irl_loss', irl_loss, step_idx)
-                tracker.track('agent_loss', rl_loss, step_idx)
-
-                # Reset
-                trajectories.clear()
-                exp_trajectories.clear()
-                step_idx += 1
+                    samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                                              num_samples=3)
+                    print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
+                    tracker.track('irl_loss', irl_loss, step_idx)
+                    tracker.track('agent_loss', rl_loss, step_idx)
+    
+                    # Reset
+                    trajectories.clear()
+                    exp_trajectories.clear()
+                    step_idx += 1
 
         drl_algorithm.model.load_state_dict(best_model_wts[0])
         irl_algorithm.model.load_state_dict(best_model_wts[1])
