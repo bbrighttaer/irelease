@@ -399,8 +399,8 @@ class StackRNN(nn.Module):
         self.k_padding_mask_func = k_mask_func
         if has_stack:
             input_size = int(input_size + stack_width)
-            self.A_linear = nn.Linear(hidden_size, 3)
-            self.D_linear = nn.Linear(hidden_size, stack_width)
+            self.stack_controls_layer = nn.Linear(hidden_size, 3)
+            self.stack_input_layer = nn.Linear(hidden_size, stack_width)
         else:
             input_size = int(input_size)
         if self.unit_type == 'lstm':
@@ -435,23 +435,19 @@ class StackRNN(nn.Module):
         outputs = []
         for c in range(seq_length):
             if self.has_stack:
-                # Stack update
                 if self.has_cell:
                     hidden_2_stack = hidden[0].view(*hidden_shape)
                 else:
                     hidden_2_stack = hidden
-                hidden_2_stack = hidden_2_stack.permute(1, 0, 2).contiguous().view(batch_size, -1)
-                controls = torch.softmax(self.A_linear(hidden_2_stack), dim=-1)
-                stack_input = torch.tanh(self.D_linear(hidden_2_stack))
-                stack = self.stack_augmentation(stack_input, stack, controls)
-
-                # rnn
+                stack_controls = self.stack_controls_layer(hidden_2_stack)
+                stack_controls = torch.softmax(stack_controls, dim=-1)
+                stack_input = self.stack_input_layer(hidden_2_stack)
+                stack_input = torch.tanh(stack_input)
+                stack = self.stack_augmentation(stack_input.permute(1, 0, 2),
+                                                stack, stack_controls)
                 stack_top = stack[:, 0, :].unsqueeze(0)
-                x_ = x[c, :, :].unsqueeze(0)
-                x_ = torch.cat([x_, stack_top], dim=-1)
-                output, hidden = self.rnn(x_, hidden)
-            else:
-                output, hidden = self.rnn(x, hidden)
+                x = torch.cat((x, stack_top), dim=2)
+            output, hidden = self.rnn(x, hidden)
             outputs.append(output)
         x = torch.cat(outputs)
         inp[0] = x
@@ -465,32 +461,26 @@ class StackRNN(nn.Module):
         """
         Augmentation of the tensor into the stack. For more details see
         https://arxiv.org/abs/1503.01007
-
         Parameters
         ----------
         input_val: torch.tensor
             tensor to be added to stack
-
         prev_stack: torch.tensor
             previous stack state
-
         controls: torch.tensor
             predicted probabilities for each operation in the stack, i.e
             PUSH, POP and NO_OP. Again, see https://arxiv.org/abs/1503.01007
-
         Returns
         -------
         new_stack: torch.tensor
             new stack state
         """
-        input_val = input_val.unsqueeze(1)
         batch_size = prev_stack.size(0)
         controls = controls.view(-1, 3, 1, 1)
-        zeros_at_the_bottom = torch.zeros(batch_size, 1, self.stack_width)
-        zeros_at_the_bottom = zeros_at_the_bottom.to(input_val.device)
+        zeros_at_the_bottom = torch.zeros(batch_size, 1, self.stack_width).to(input_val.device)
         a_push, a_pop, a_no_op = controls[:, 0], controls[:, 1], controls[:, 2]
-        stack_down = torch.cat((prev_stack[:, 1:, :], zeros_at_the_bottom), dim=1)
-        stack_up = torch.cat((input_val, prev_stack[:, :-1, :]), dim=1)
+        stack_down = torch.cat((prev_stack[:, 1:], zeros_at_the_bottom), dim=1)
+        stack_up = torch.cat((input_val, prev_stack[:, :-1]), dim=1)
         new_stack = a_no_op * prev_stack + a_push * stack_up + a_pop * stack_down
         return new_stack
 

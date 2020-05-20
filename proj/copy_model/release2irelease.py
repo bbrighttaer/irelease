@@ -65,8 +65,8 @@ def create_irelease_model_and_transfer(model1):
                          stack_width=hparams['agent_params']['stack_width'],
                          stack_depth=hparams['agent_params']['stack_depth'],
                          k_mask_func=encoder.k_padding_mask)
-    stack_rnn.A_linear.load_state_dict(model1.stack_controls_layer.state_dict())
-    stack_rnn.D_linear.load_state_dict(model1.stack_input_layer.state_dict())
+    stack_rnn.stack_controls_layer.load_state_dict(model1.stack_controls_layer.state_dict())
+    stack_rnn.stack_input_layer.load_state_dict(model1.stack_input_layer.state_dict())
     stack_rnn.rnn.load_state_dict(model1.rnn.state_dict())
 
     rnn_linear_out = StackRNNLinear(out_dim=gen_data.n_characters, hidden_size=hparams['d_model'], bidirectional=False,
