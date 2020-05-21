@@ -22,9 +22,8 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 
 from gpmt.data import GeneratorData
-from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
-    RewardNetRNN, ExpertModel
-from gpmt.predictor import rf_qsar_predictor, get_reward_jak2_max
+from gpmt.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN
+from gpmt.predictor import LogPPredictor, get_reward_logp
 from gpmt.reinforcement import Reinforcement
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
@@ -128,7 +127,8 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
-        expert_model = ExpertModel(rf_qsar_predictor, './rf_qsar/')
+
+        expert_model = LogPPredictor(hparams['expert_model_params'], device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device,
                                          mc_max_sims=hparams['monte_carlo_N'],
@@ -225,8 +225,8 @@ class IReLeaSE(Trainer):
         n_policy = 15
         n_batch = 10
         n_to_generate = 200
-        reinforcement = Reinforcement(drl_algorithm.model, drl_algorithm.optimizer, rf_qsar_predictor,
-                                      get_reward_jak2_max, device)
+        reinforcement = Reinforcement(drl_algorithm.model, drl_algorithm.optimizer, expert_model, get_reward_logp,
+                                      device)
         rl_losses = []
         with TBMeanTracker(tb_writer, 1) as tracker:
             for i in range(n_iterations):
@@ -382,7 +382,17 @@ def default_hparams(args):
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              # 'optimizer__global__weight_decay': 0.00005,
-                             'optimizer__global__lr': 0.001}
+                             'optimizer__global__lr': 0.001},
+            'expert_model_params': {'model_dir': './model_dir/expert',
+                                    'batch': 128,
+                                    'd_model': 128,
+                                    'rnn_num_layers': 2,
+                                    'dropout': 0.8,
+                                    'is_bidirectional': False,
+                                    'unit_type': 'lstm',
+                                    'optimizer': 'adam',
+                                    # 'optimizer__global__weight_decay': 0.0005,
+                                    'optimizer__global__lr': 0.005}
             }
 
 

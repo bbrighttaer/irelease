@@ -947,7 +947,7 @@ class RNNPredictor(nn.Module):
     Creates the RNN model in https://github.com/isayev/ReLeaSE/blob/batch_training/RecurrentQSAR-example-logp.ipynb
     """
 
-    def __init__(self, d_model, tokens, padding_char=' ', num_layers=1, dropout=0., bidrectional=False,
+    def __init__(self, d_model, tokens, padding_char=' ', num_layers=1, dropout=0., bidirectional=False,
                  unit_type='gru', device='cpu'):
         super(RNNPredictor, self).__init__()
         self.d_model = d_model
@@ -958,9 +958,9 @@ class RNNPredictor(nn.Module):
         self.encoder = nn.Embedding(len(tokens), d_model, padding_idx=tokens.index(padding_char))
         RNN = {'gru': nn.GRU,
                'lstm': nn.LSTM}.get(unit_type)
-        self.rnn = RNN(input_size=d_model, hidden_size=d_model, num_layers=num_layers, bidirectional=bidrectional,
+        self.rnn = RNN(input_size=d_model, hidden_size=d_model, num_layers=num_layers, bidirectional=bidirectional,
                        dropout=dropout)
-        self.num_directions = max(1, int(bidrectional) + 1)
+        self.num_directions = max(1, int(bidirectional) + 1)
         lin_dim = d_model * self.num_directions
         self.read_out = nn.Sequential(nn.Linear(lin_dim, d_model),
                                       nn.ReLU(),
