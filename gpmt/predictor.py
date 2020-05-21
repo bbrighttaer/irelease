@@ -9,13 +9,14 @@ import numpy as np
 from sklearn.externals import joblib
 from sklearn import metrics
 
+from gpmt.data import PredictorData
 from gpmt.utils import get_fp, get_desc, normalize_desc, cross_validation_split, canonical_smiles
 
 from sklearn.ensemble import RandomForestRegressor as RFR
 
 
 class VanillaQSAR(object):
-    def __init__(self, model_instance=None, model_params=None,
+    def __init__(self, model_instance=None, model_params=None, data_file=None,
                  model_type='classifier', ensemble_size=5, normalization=False):
         super(VanillaQSAR, self).__init__()
         self.model_instance = model_instance
@@ -38,6 +39,11 @@ class VanillaQSAR(object):
         if self.normalization:
             self.desc_mean = [0] * self.ensemble_size
         self.metrics_type = None
+        if data_file:
+            pred_data = PredictorData(path=data_file, get_features=get_fp)
+            print('Fitting expert model...')
+            pred_results = self.fit_model(pred_data, cv_split='random')
+            print(f'Expert model fit results = {pred_results}')
 
     def fit_model(self, data, cv_split='stratified'):
         eval_metrics = []
@@ -137,4 +143,5 @@ def get_reward_jak2_max(smiles, predictor, invalid_reward=0.0):
 # Model used in https://github.com/isayev/ReLeaSE/blob/master/JAK2_min_max_demo.ipynb
 rf_qsar_predictor = VanillaQSAR(model_instance=RFR,
                                 model_params={'n_estimators': 250, 'n_jobs': 10},
-                                model_type='regressor')
+                                model_type='regressor',
+                                data_file='../data/jak2_data.csv')
