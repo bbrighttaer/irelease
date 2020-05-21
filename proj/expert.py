@@ -121,7 +121,7 @@ class ExpertTrainer(Trainer):
         # Since during hyperparameter search values that could cause CUDA memory exception could be sampled
         # we want to ignore such values and find others that are workable within the memory constraints.
         with contextlib.suppress(Exception if not is_hsearch else DummyException):
-            a = 1/0
+            a = 1 / 0
             for epoch in range(n_epochs):
                 eval_scores = []
                 for phase in ['train', 'val', 'test']:
