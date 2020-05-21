@@ -17,9 +17,11 @@ import random
 import numpy as np
 import torch
 from sklearn.metrics import r2_score, mean_squared_error
+from soek.bopt import GPMinArgs
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import Dataset, DataLoader
-from soek import Trainer, DataNode
+from soek import Trainer, DataNode, CategoricalParam, DiscreteParam, RealParam, LogRealParam, RandomSearch, \
+    BayesianOptSearch
 from tqdm import tqdm
 
 from gpmt.model import RNNPredictor
@@ -71,7 +73,7 @@ class ExpertTrainer(Trainer):
                              tokens=get_default_tokens(),
                              num_layers=hparams['rnn_num_layers'],
                              dropout=hparams['dropout'],
-                             bidrectional=hparams['is_bidrectional'],
+                             bidirectional=hparams['is_bidirectional'],
                              unit_type=hparams['unit_type'],
                              device=device).to(device)
         optimizer = parse_optimizer(hparams, model)
@@ -118,7 +120,7 @@ class ExpertTrainer(Trainer):
         # Since during hyperparameter search values that could cause CUDA memory exception could be sampled
         # we want to ignore such values and find others that are workable within the memory constraints.
         with contextlib.suppress(Exception if not is_hsearch else DummyException):
-            a = 1/0
+            a = 1 / 0
             for epoch in range(n_epochs):
                 eval_scores = []
                 for phase in ['train', 'val', 'test']:
@@ -223,7 +225,42 @@ def main(flags):
         trainer = ExpertTrainer()
         folds = flags.folds if flags.cv else 1
         if flags.hparam_search:
-            pass
+            print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
+            # arguments to callables
+            extra_init_args = {}
+            extra_data_args = {'cv': flags.cv,
+                               'data': data_dict}
+            extra_train_args = {'n_iterations': 5000,
+                                'transformer': transformer,
+                                'is_hsearch': True,
+                                'tb_writer': None}
+
+            hparams_conf = hparams_config()
+
+            if hparam_search is None:
+                search_alg = {'random_search': RandomSearch,
+                              'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
+                                                                      BayesianOptSearch)
+                search_args = GPMinArgs(n_calls=10, random_state=seed)
+                hparam_search = search_alg(hparam_config=hparams_conf,
+                                           num_folds=folds,
+                                           initializer=trainer.initialize,
+                                           data_provider=trainer.data_provider,
+                                           train_fn=trainer.train,
+                                           save_model_fn=trainer.save_model,
+                                           alg_args=search_args,
+                                           init_args=extra_init_args,
+                                           data_args=extra_data_args,
+                                           train_args=extra_train_args,
+                                           data_node=data_node,
+                                           split_label='random',
+                                           sim_label=sim_label,
+                                           dataset_label=os.path.split(flags.data_file)[1],
+                                           results_file=f'{flags.hparam_search_alg}_{sim_label}_{date_label}')
+
+            stats = hparam_search.fit(model_dir="models", model_name="".join(tasks))
+            print(stats)
+            print("Best params = {}".format(stats.best()))
         else:
             hyper_params = default_params(flags)
             # Initialize the model and other related entities for training.
@@ -265,11 +302,23 @@ def default_params(flag):
             'd_model': 128,
             'rnn_num_layers': 2,
             'dropout': 0.8,
-            'is_bidrectional': False,
+            'is_bidirectional': False,
             'unit_type': 'lstm',
             'optimizer': 'adam',
             # 'optimizer__global__weight_decay': 0.0005,
             'optimizer__global__lr': 0.005}
+
+
+def hparams_config():
+    return {'batch': CategoricalParam(choices=[32, 64, 128]),
+            'd_model': DiscreteParam(min=32, max=256),
+            'rnn_num_layers': DiscreteParam(min=1, max=3),
+            'dropout': RealParam(min=0., max=0.8),
+            'is_bidirectional': CategoricalParam(choices=[True, False]),
+            'unit_type': CategoricalParam(choices=['gru', 'lstm']),
+            'optimizer': CategoricalParam(choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
+            'optimizer__global__weight_decay': LogRealParam(),
+            'optimizer__global__lr': LogRealParam()}
 
 
 if __name__ == '__main__':
