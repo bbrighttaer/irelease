@@ -10,11 +10,11 @@ import rdkit.Chem as Chem
 import torch
 from tqdm import tqdm
 
-from gpmt.model import RNNPredictor
+from gpmt.model import RNNPredictorModel
 from gpmt.utils import get_default_tokens
 
 
-class LogPPredictor(object):
+class RNNPredictor(object):
     def __init__(self, hparams, device):
         expert_model_dir = hparams['model_dir']
         assert (os.path.isdir(expert_model_dir)), 'Expert model(s) should be in a dedicated folder'
@@ -23,13 +23,13 @@ class LogPPredictor(object):
         self.device = device
         model_paths = os.listdir(expert_model_dir)
         for model_file in model_paths:
-            model = RNNPredictor(d_model=hparams['d_model'],
-                                 tokens=self.tokens,
-                                 num_layers=hparams['rnn_num_layers'],
-                                 dropout=hparams['dropout'],
-                                 bidirectional=hparams['is_bidirectional'],
-                                 unit_type=hparams['unit_type'],
-                                 device=device).to(device)
+            model = RNNPredictorModel(d_model=hparams['d_model'],
+                                      tokens=self.tokens,
+                                      num_layers=hparams['rnn_num_layers'],
+                                      dropout=hparams['dropout'],
+                                      bidirectional=hparams['is_bidirectional'],
+                                      unit_type=hparams['unit_type'],
+                                      device=device).to(device)
             model.load_state_dict(torch.load(os.path.join(expert_model_dir, model_file),
                                              map_location=torch.device(device)))
             self.models.append(model)

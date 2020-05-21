@@ -24,7 +24,7 @@ from soek import Trainer, DataNode, CategoricalParam, DiscreteParam, RealParam, 
     BayesianOptSearch
 from tqdm import tqdm
 
-from gpmt.model import RNNPredictor
+from gpmt.model import RNNPredictorModel
 from gpmt.supervised.dataloader import load_smiles_data
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, time_since
 
@@ -69,13 +69,13 @@ class ExpertTrainer(Trainer):
                                  batch_size=hparams['batch'],
                                  collate_fn=lambda x: x)
         # Create model and optimizer
-        model = RNNPredictor(d_model=hparams['d_model'],
-                             tokens=get_default_tokens(),
-                             num_layers=hparams['rnn_num_layers'],
-                             dropout=hparams['dropout'],
-                             bidirectional=hparams['is_bidirectional'],
-                             unit_type=hparams['unit_type'],
-                             device=device).to(device)
+        model = RNNPredictorModel(d_model=hparams['d_model'],
+                                  tokens=get_default_tokens(),
+                                  num_layers=hparams['rnn_num_layers'],
+                                  dropout=hparams['dropout'],
+                                  bidirectional=hparams['is_bidirectional'],
+                                  unit_type=hparams['unit_type'],
+                                  device=device).to(device)
         optimizer = parse_optimizer(hparams, model)
         metrics = [mean_squared_error, r2_score]
 

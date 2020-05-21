@@ -23,7 +23,7 @@ from tqdm import trange
 
 from gpmt.data import GeneratorData
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN
-from gpmt.predictor import LogPPredictor, get_reward_logp
+from gpmt.predictor import RNNPredictor, get_reward_logp
 from gpmt.reinforcement import Reinforcement
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
@@ -128,7 +128,7 @@ class IReLeaSE(Trainer):
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
 
-        expert_model = LogPPredictor(hparams['expert_model_params'], device)
+        expert_model = RNNPredictor(hparams['expert_model_params'], device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device,
                                          mc_max_sims=hparams['monte_carlo_N'],

@@ -942,14 +942,14 @@ class ExpertModel:
         return self.predict(*args, **kwargs)
 
 
-class RNNPredictor(nn.Module):
+class RNNPredictorModel(nn.Module):
     """
     Creates the RNN model in https://github.com/isayev/ReLeaSE/blob/batch_training/RecurrentQSAR-example-logp.ipynb
     """
 
     def __init__(self, d_model, tokens, padding_char=' ', num_layers=1, dropout=0., bidirectional=False,
                  unit_type='gru', device='cpu'):
-        super(RNNPredictor, self).__init__()
+        super(RNNPredictorModel, self).__init__()
         self.d_model = d_model
         self.tokens = tokens
         self.device = device
