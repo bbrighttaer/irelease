@@ -143,8 +143,9 @@ class ExpertTrainer(Trainer):
 
                         # Perform evaluation using the given metrics
                         eval_dict = {}
-                        score = ExpertTrainer.evaluate(eval_dict, y_true.cpu().detach().numpy(),
-                                                       transformer.undo_transform(y_pred.cpu().detach().numpy()),
+                        score = ExpertTrainer.evaluate(eval_dict,
+                                                       transformer.inverse_transform(y_true.cpu().detach().numpy()),
+                                                       transformer.inverse_transform(y_pred.cpu().detach().numpy()),
                                                        metrics)
                         for m in eval_dict:
                             if m in metrics:
@@ -256,9 +257,10 @@ def main(flags):
                                            sim_label=sim_label,
                                            dataset_label=os.path.split(flags.data_file)[1],
                                            results_file=f'{flags.hparam_search_alg}_{sim_label}_{date_label}')
+            start = time.time()
             stats = hparam_search.fit()
             print(stats)
-            print("Best params = {}".format(stats.best()))
+            print("Best params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
             hyper_params = default_params(flags)
             # Initialize the model and other related entities for training.

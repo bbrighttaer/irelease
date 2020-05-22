@@ -5,6 +5,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import joblib
 import numpy as np
 import rdkit.Chem as Chem
 import torch
@@ -22,7 +23,12 @@ class RNNPredictor(object):
         self.tokens = get_default_tokens()
         self.device = device
         model_paths = os.listdir(expert_model_dir)
+        self.transformer = None
         for model_file in model_paths:
+            if 'transformer' in model_file:
+                with open(os.path.join(expert_model_dir, model_file), 'rb') as f:
+                    self.transformer = joblib.load(f)
+                    continue
             model = RNNPredictorModel(d_model=hparams['d_model'],
                                       tokens=self.tokens,
                                       num_layers=hparams['rnn_num_layers'],
@@ -66,7 +72,10 @@ class RNNPredictor(object):
             return canonical_smiles, [], invalid_smiles
         prediction = []
         for i in range(len(self.models)):
-            prediction.append(self.models[i](canonical_smiles).detach().cpu().numpy())
+            y_pred = self.models[i](canonical_smiles).detach().cpu().numpy()
+            if self.transformer is not None:
+                y_pred = self.transformer.inverse_transform(y_pred)
+            prediction.append(y_pred)
         prediction = np.array(prediction)
         prediction = np.min(prediction, axis=0)
         return canonical_smiles, prediction, invalid_smiles

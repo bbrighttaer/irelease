@@ -47,8 +47,8 @@ def load_smiles_data(file, cv, normalize_y=True, k=5, header=0, index_col=0, del
     y = dataframe[dataframe.columns[x_y_cols[1]]].values.reshape(-1, 1)
     if normalize_y:
         log('Normalizing labels...')
-        transformer = RegressionTransformer()
-        y = transformer.transform(y)
+        transformer = StandardScaler()
+        y = transformer.fit_transform(y)
     log(f'Data directory in use is {data_dir}')
 
     # Split data
@@ -78,14 +78,3 @@ def load_smiles_data(file, cv, normalize_y=True, k=5, header=0, index_col=0, del
         with open(trans_save_dir, 'wb') as f:
             joblib.dump(transformer, f)
     return data_dict, transformer
-
-
-class RegressionTransformer(object):
-    def __init__(self):
-        self._scaler = StandardScaler()
-
-    def transform(self, x):
-        return self._scaler.fit_transform(x)
-
-    def undo_transform(self, x):
-        return self._scaler.inverse_transform(x, copy=True)
