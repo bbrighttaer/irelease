@@ -259,6 +259,7 @@ def main(flags):
                                            results_file=f'{flags.hparam_search_alg}_{sim_label}_{date_label}')
             start = time.time()
             stats = hparam_search.fit()
+            print(f'Duration = {time_since(start)}')
             print(stats)
             print("Best params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
@@ -288,7 +289,7 @@ def start_fold(sim_data_node, data_dict, transformer, flags, hyper_params, train
     else:
         # Train the model
         results = trainer.train(init_args, n_iterations=10000, transformer=transformer, sim_data_node=sim_data_node,
-                                tb_writer=sw_creator)
+                                tb_writer=sw_creator, print_every=1)
         model, score, epoch = results['model'], results['score'], results['epoch']
         # Save the model.
         label = f'rnn_predictor_epoch_{epoch}_{round(score, 3)}'
@@ -301,12 +302,12 @@ def default_params(flag):
     return {'batch': 128,
             'd_model': 128,
             'rnn_num_layers': 2,
-            'dropout': 0.8,
+            'dropout': 0.0,
             'is_bidirectional': False,
             'unit_type': 'lstm',
             'optimizer': 'adam',
-            # 'optimizer__global__weight_decay': 0.0005,
-            'optimizer__global__lr': 0.005}
+            'optimizer__global__weight_decay': 0.000,
+            'optimizer__global__lr': 0.001}
 
 
 def hparams_config():
