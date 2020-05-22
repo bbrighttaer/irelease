@@ -25,7 +25,7 @@ from soek import Trainer, DataNode, CategoricalParam, DiscreteParam, RealParam, 
 from tqdm import tqdm
 
 from gpmt.model import RNNPredictorModel
-from gpmt.supervised.dataloader import load_smiles_data
+from gpmt.dataloader import load_smiles_data
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, time_since
 
 currentDT = dt.now()
@@ -120,8 +120,7 @@ class ExpertTrainer(Trainer):
 
         # Since during hyperparameter search values that could cause CUDA memory exception could be sampled
         # we want to ignore such values and find others that are workable within the memory constraints.
-        with contextlib.suppress(Exception if not is_hsearch else DummyException):
-            a = 1 / 0
+        with contextlib.suppress(Exception if is_hsearch else DummyException):
             for epoch in range(n_epochs):
                 eval_scores = []
                 for phase in ['train', 'val', 'test']:
@@ -301,7 +300,7 @@ def default_params(flag):
             'd_model': 128,
             'rnn_num_layers': 2,
             'dropout': 0.8,
-            'is_bidirectional': False,
+            'is_bidirectional': True,
             'unit_type': 'lstm',
             'optimizer': 'adam',
             # 'optimizer__global__weight_decay': 0.0005,

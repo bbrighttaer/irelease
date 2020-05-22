@@ -962,7 +962,7 @@ class RNNPredictorModel(nn.Module):
                        dropout=dropout)
         self.num_directions = max(1, int(bidirectional) + 1)
         lin_dim = d_model * self.num_directions
-        self.read_out = nn.Sequential(nn.Linear(lin_dim, d_model),
+        self.read_out = nn.Sequential(nn.Linear(lin_dim, lin_dim),
                                       nn.ReLU(),
                                       nn.Linear(lin_dim, 1))
 
