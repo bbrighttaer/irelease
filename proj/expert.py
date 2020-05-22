@@ -34,7 +34,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [42]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -69,10 +69,10 @@ class ExpertTrainer(Trainer):
                                  batch_size=hparams['batch'],
                                  collate_fn=lambda x: x)
         # Create model and optimizer
-        model = RNNPredictorModel(d_model=hparams['d_model'],
+        model = RNNPredictorModel(d_model=int(hparams['d_model']),
                                   tokens=get_default_tokens(),
-                                  num_layers=hparams['rnn_num_layers'],
-                                  dropout=hparams['dropout'],
+                                  num_layers=int(hparams['rnn_num_layers']),
+                                  dropout=float(hparams['dropout']),
                                   bidirectional=hparams['is_bidirectional'],
                                   unit_type=hparams['unit_type'],
                                   device=device).to(device)
@@ -123,7 +123,7 @@ class ExpertTrainer(Trainer):
         with contextlib.suppress(Exception if is_hsearch else DummyException):
             for epoch in range(n_epochs):
                 eval_scores = []
-                for phase in ['train', 'val', 'test']:
+                for phase in ['train', 'val' if is_hsearch else 'test']:
                     if phase == 'train':
                         predictor.train()
                     else:
@@ -300,7 +300,7 @@ def default_params(flag):
             'd_model': 128,
             'rnn_num_layers': 2,
             'dropout': 0.8,
-            'is_bidirectional': True,
+            'is_bidirectional': False,
             'unit_type': 'lstm',
             'optimizer': 'adam',
             # 'optimizer__global__weight_decay': 0.0005,
