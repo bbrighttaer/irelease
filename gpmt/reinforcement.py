@@ -118,7 +118,6 @@ class Reinforcement(object):
                     reward = self.get_reward(trajectory, self.predictor, **kwargs)
 
             # Converting string of characters into tensor
-            print(trajectory, reward)
             trajectory_input = char_to_tensor('<' + trajectory + '>', self.device)
             discounted_reward = reward
             total_reward += reward

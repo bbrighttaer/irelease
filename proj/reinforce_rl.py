@@ -255,7 +255,7 @@ class IReLeaSE(Trainer):
                         samples, _ = canonical_smiles(generate_smiles(drl_algorithm.model,
                                                                       demo_data_gen, init_args['gen_args'],
                                                                       num_samples=n_to_generate))
-                    _, predictions = expert_model.predict(samples)
+                    _, predictions, _ = expert_model.predict(samples)
                     score = np.mean(predictions)
                     print("Mean value of predictions:", predictions.mean())
                     print("Proportion of valid SMILES:", len(predictions) / n_to_generate)
