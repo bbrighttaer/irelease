@@ -61,12 +61,11 @@ class RewardFunction:
             A scalar value representing the reward w.r.t. the given state x.
         """
         if use_mc:
-            # mc_node = MoleculeMonteCarloTreeSearchNode(x, self, self.mc_policy, self.actions, self.max_len,
-            #                                            end_char=self.end_char)
-            # mcts = MonteCarloTreeSearch(mc_node)
-            # reward = mcts(simulations_number=self.mc_max_sims)
-            # return reward
-            return 0.0
+            mc_node = MoleculeMonteCarloTreeSearchNode(x, self, self.mc_policy, self.actions, self.max_len,
+                                                       end_char=self.end_char)
+            mcts = MonteCarloTreeSearch(mc_node)
+            reward = mcts(simulations_number=self.mc_max_sims)
+            return reward
         else:
             # Get reward of completed string using the reward net
             state = x[1:-1]

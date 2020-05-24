@@ -15,5 +15,6 @@ setup(
     license='',
     author='Brighter Agyemang',
     author_email='brighteragyemang@gmail.com',
-    description='', install_requires=['gym', 'numpy', 'pytorch', 'soek', 'torch', 'rdkit', 'scikit-learn', 'tqdm']
+    description='', install_requires=['gym', 'numpy', 'pytorch', 'soek', 'torch', 'rdkit', 'scikit-learn', 'tqdm',
+                                      'joblib']
 )

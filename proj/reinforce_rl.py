@@ -258,13 +258,14 @@ class IReLeaSE(Trainer):
                                                   num_samples=n_to_generate)
                     predictions = expert_model(samples)[1]
                     score = np.mean(predictions)
-                    print(f'Mean value of predictions = {score}, '
-                          f'% of valid SMILES = {len(predictions) / n_to_generate}')
                     percentage_in_threshold = np.sum((predictions >= 0.0) & (predictions <= 5.0)) / len(predictions)
-                    print("Percentage of predictions within drug-like region:", percentage_in_threshold)
+                    print(f'Mean value of predictions = {score}, '
+                          f'% of valid SMILES = {len(predictions) / n_to_generate}, '
+                          f'% in drug-like region={percentage_in_threshold}')
                     tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                          'baseline': baseline_score,
                                                          'demo_data': demo_score}, step_idx)
+                    tracker.track('% of valid smiles', percentage_in_threshold, step_idx)
                     if score >= best_score:
                         best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                           copy.deepcopy(irl_algorithm.model.state_dict())]
@@ -282,7 +283,7 @@ class IReLeaSE(Trainer):
                 irl_loss = 0  # irl_algorithm.fit(irl_trajectories)
                 rl_loss = drl_algorithm.fit(exp_trajectories)
                 samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                          num_samples=1)
+                                          num_samples=3)
                 print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
                 tracker.track('irl_loss', irl_loss, step_idx)
                 tracker.track('agent_loss', rl_loss, step_idx)
@@ -368,7 +369,7 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 15,
+    return {'d_model': 1500,
             'dropout': 0.0,
             'monte_carlo_N': 5,
             'gamma': 0.97,
@@ -386,7 +387,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
-                             'stack_width': 15,
+                             'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.0000,
