@@ -182,16 +182,16 @@ class REINFORCE(DRLAlgorithm):
         rl_loss = 0.
         for t in trange(len(trajectories), desc='REINFORCE opt...'):
             trajectory = trajectories[t]
-            smiles, discounted_reward = trajectory
-            trajectory_input = char_to_tensor(smiles, self.device)
+            states, actions, q_values = unpack_trajectory(trajectory, self.gamma)
+            (states, state_len), actions = _preprocess_states_actions(actions, states, self.device)
             hidden_states = self.initial_states_func(1, **self.initial_states_args)
-            for p in range(len(trajectory_input) - 1):
+            trajectory_input = states[-1]  # since the last state captures all previous states
+            for p in range(len(trajectory)):
                 outputs = self.model([trajectory_input[p].reshape(1, 1)] + hidden_states)
                 output, hidden_states = outputs[0], outputs[1:]
                 log_prob = torch.log_softmax(output.view(1, -1), dim=1)
-                top_i = trajectory_input[p + 1]
-                rl_loss -= (discounted_reward * log_prob[0, top_i])
-                discounted_reward = discounted_reward * self.gamma
+                top_i = actions[p]
+                rl_loss -= (q_values[p] * log_prob[0, top_i])
         rl_loss = rl_loss / len(trajectories)
         rl_loss.backward()
         if self.grad_clipping is not None:
