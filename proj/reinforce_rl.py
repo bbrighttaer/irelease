@@ -67,7 +67,7 @@ def get_initial_states(batch_size, hidden_size, num_layers, stack_depth, stack_w
 class IReLeaSE(Trainer):
 
     @staticmethod
-    def initialize(hparams, demo_data_gen, unbiased_data_gen, *args, **kwargs):
+    def initialize(hparams, demo_data_gen, unbiased_data_gen, prior_data_gen, *args, **kwargs):
         # Embeddings provider
         encoder = Encoder(vocab_size=demo_data_gen.n_characters, d_model=hparams['d_model'],
                           padding_idx=demo_data_gen.char2idx[demo_data_gen.pad_symbol],
@@ -113,7 +113,9 @@ class IReLeaSE(Trainer):
         drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
                             initial_states_func=agent_net_hidden_states_func,
                             initial_states_args=init_state_args,
+                            prior_data_gen=prior_data_gen,
                             device=device,
+                            xent_lambda=hparams['xent_lambda'],
                             gamma=hparams['gamma'],
                             grad_clipping=hparams['reinforce_max_norm'],
                             lr_decay_gamma=hparams['lr_decay_gamma'],
@@ -131,9 +133,10 @@ class IReLeaSE(Trainer):
 
         expert_model = RNNPredictor(hparams['expert_model_params'], device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
-                                         device=device,
+                                         device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
-                                         expert_func=expert_model)
+                                         expert_func=expert_model,
+                                         no_mc_fill_val=hparams['no_mc_fill_val'])
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         demo_data_gen.set_batch_size(hparams['reward_params']['demo_batch_size'])
         irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, demo_data_gen,
@@ -182,7 +185,15 @@ class IReLeaSE(Trainer):
                                       max_len=120,
                                       tokens=tokens,
                                       use_cuda=use_cuda)
-        return {"train": demo_data, "val": demo_data, "test": unbiased_data}
+        prior_data = GeneratorData(training_data_path=flags.prior_data,
+                                   delimiter='\t',
+                                   cols_to_read=[0],
+                                   keep_header=True,
+                                   pad_symbol=' ',
+                                   max_len=120,
+                                   tokens=tokens,
+                                   use_cuda=use_cuda)
+        return {'demo_data': demo_data, 'unbiased_data': unbiased_data, 'prior_data': prior_data}
 
     @staticmethod
     def evaluate(*args, **kwargs):
@@ -225,8 +236,8 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
-        baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
+        demo_score = 0.  # np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
+        baseline_score = 0.  # np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
         n_to_generate = 200
         with TBMeanTracker(tb_writer, 1) as tracker:
             for step_idx, exp in tqdm(enumerate(exp_source)):
@@ -352,7 +363,8 @@ def main(flags):
         else:
             hyper_params = default_hparams(flags)
             data_gens = irelease.data_provider(k, flags)
-            init_args = irelease.initialize(hyper_params, data_gens['train'], data_gens['test'])
+            init_args = irelease.initialize(hyper_params, data_gens['demo_data'], data_gens['unbiased_data'],
+                                            data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
                                      n_episodes=10000,
@@ -374,13 +386,16 @@ def default_hparams(args):
     return {'d_model': 1500,
             'dropout': 0.0,
             'monte_carlo_N': 5,
+            'use_monte_carlo_sim': True,
+            'no_mc_fill_val': 0.0,
             'gamma': 0.97,
             'episodes_to_train': 10,
             'reinforce_max_norm': None,
             'lr_decay_gamma': 0.1,
             'lr_decay_step_size': 1000,
-            'reward_params': {'num_layers': 2,
-                              'd_model': 256,
+            'xent_lambda': 0.3,
+            'reward_params': {'num_layers': 1,
+                              'd_model': 128,
                               'unit_type': 'gru',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 2,
@@ -409,10 +424,12 @@ def get_hparam_config(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='IRL for Structural Evolution of Small Molecules')
-    parser.add_argument('-d', '--demo', dest='demo_file', type=str,
+    parser.add_argument('--demo', dest='demo_file', type=str,
                         help='File containing SMILES strings which are demonstrations of the required objective')
-    parser.add_argument('-u', '--unbiased', dest='unbiased_file', type=str,
+    parser.add_argument('--unbiased', dest='unbiased_file', type=str,
                         help='File containing SMILES generated with the pretrained (prior) model.')
+    parser.add_argument('--prior_data', dest='prior_data', type=str,
+                        help='File containing SMILES used to train the prior model.')
     parser.add_argument('--model_dir',
                         type=str,
                         default='./model_dir',

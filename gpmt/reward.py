@@ -38,7 +38,7 @@ class RewardFunction:
     """
 
     def __init__(self, reward_net, mc_policy, actions, mc_max_sims=50, max_len=100, end_char='>', device='cpu',
-                 expert_func=None):
+                 expert_func=None, use_mc=True, no_mc_fill_val=0.0):
         self.model = reward_net
         self.actions = actions
         self.mc_policy = mc_policy
@@ -47,6 +47,8 @@ class RewardFunction:
         self.end_char = end_char
         self.device = device
         self.expert_func = expert_func
+        self.mc_enabled = use_mc
+        self.no_mc_fill_val = no_mc_fill_val
 
     @torch.no_grad()
     def __call__(self, x, use_mc):
@@ -61,11 +63,14 @@ class RewardFunction:
             A scalar value representing the reward w.r.t. the given state x.
         """
         if use_mc:
-            mc_node = MoleculeMonteCarloTreeSearchNode(x, self, self.mc_policy, self.actions, self.max_len,
-                                                       end_char=self.end_char)
-            mcts = MonteCarloTreeSearch(mc_node)
-            reward = mcts(simulations_number=self.mc_max_sims)
-            return reward
+            if self.mc_enabled:
+                mc_node = MoleculeMonteCarloTreeSearchNode(x, self, self.mc_policy, self.actions, self.max_len,
+                                                           end_char=self.end_char)
+                mcts = MonteCarloTreeSearch(mc_node)
+                reward = mcts(simulations_number=self.mc_max_sims)
+                return reward
+            else:
+                return self.no_mc_fill_val
         else:
             # Get reward of completed string using the reward net
             # state = x[1:-1]
