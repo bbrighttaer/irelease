@@ -20,18 +20,17 @@ from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import trange, tqdm
+from tqdm import tqdm
 
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN
-from gpmt.predictor import RNNPredictor, get_reward_logp
-from gpmt.reinforcement import Reinforcement
+from gpmt.predictor import RNNPredictor
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, REINFORCE, Trajectory, EpisodeStep
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, canonical_smiles
+    time_since, generate_smiles
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -259,13 +258,16 @@ class IReLeaSE(Trainer):
                     predictions = expert_model(samples)[1]
                     score = np.mean(predictions)
                     percentage_in_threshold = np.sum((predictions >= 0.0) & (predictions <= 5.0)) / len(predictions)
+                    per_valid = len(predictions) / n_to_generate
                     print(f'Mean value of predictions = {score}, '
-                          f'% of valid SMILES = {len(predictions) / n_to_generate}, '
+                          f'% of valid SMILES = {per_valid}, '
                           f'% in drug-like region={percentage_in_threshold}')
                     tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                          'baseline': baseline_score,
                                                          'demo_data': demo_score}, step_idx)
-                    tracker.track('% of valid smiles', percentage_in_threshold, step_idx)
+                    tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
+                                                           'per. in drug-like region': percentage_in_threshold},
+                                          step_idx)
                     if score >= best_score:
                         best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                           copy.deepcopy(irl_algorithm.model.state_dict())]
