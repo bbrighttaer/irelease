@@ -116,7 +116,7 @@ class IReLeaSE(Trainer):
                             initial_states_args=init_state_args,
                             device=device,
                             gamma=hparams['gamma'],
-                            grad_clipping= hparams['reinforce_max_norm'],
+                            grad_clipping=hparams['reinforce_max_norm'],
                             lr_decay_gamma=hparams['lr_decay_gamma'],
                             lr_decay_step=hparams['lr_decay_step_size'])
 
@@ -280,7 +280,7 @@ class IReLeaSE(Trainer):
 
                 # Train models
                 print('Fitting models...')
-                irl_loss = 0  # irl_algorithm.fit(irl_trajectories)
+                irl_loss = irl_algorithm.fit(irl_trajectories)
                 rl_loss = drl_algorithm.fit(exp_trajectories)
                 samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                           num_samples=3)

@@ -435,6 +435,7 @@ class StackRNN(nn.Module):
         # Iteratively apply stack RNN to all characters in a sequence
         outputs = []
         for c in range(seq_length):
+            x_ = x[c]
             if self.has_stack:
                 if self.has_cell:
                     hidden_2_stack = hidden[0].view(*hidden_shape)
@@ -446,9 +447,9 @@ class StackRNN(nn.Module):
                 stack_input = torch.tanh(stack_input)
                 stack = self.stack_augmentation(stack_input.permute(1, 0, 2),
                                                 stack, stack_controls)
-                stack_top = stack[:, 0, :].unsqueeze(0)
-                x = torch.cat((x, stack_top), dim=2)
-            output, hidden = self.rnn(x, hidden)
+                stack_top = stack[:, 0, :]
+                x_ = torch.cat((x_, stack_top), dim=-1)
+            output, hidden = self.rnn(x_.unsqueeze(0), hidden)
             outputs.append(output)
         x = torch.cat(outputs)
         inp[0] = x
@@ -991,4 +992,3 @@ class RNNPredictorModel(nn.Module):
         x = x[-1, :, :].reshape(batch_size, -1)
         x = self.read_out(x)
         return x
-
