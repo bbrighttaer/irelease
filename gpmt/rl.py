@@ -11,7 +11,7 @@ from collections import namedtuple
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, ExponentialLR
 from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
 from tqdm import trange
@@ -377,6 +377,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
                  use_buffer=True, buffer_size=1000, buffer_batch_size=100, device='cpu'):
         self.model = model
         self.optimizer = optimizer
+        self.lr_sch = ExponentialLR(self.optimizer, gamma=0.95)
         self.demo_gen_data = demo_gen_data
         self.k = k
         self.device = device
@@ -453,6 +454,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            self.lr_sch.step()
         return np.mean(losses)
 
 
