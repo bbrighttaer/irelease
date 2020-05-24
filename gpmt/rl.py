@@ -158,7 +158,7 @@ def unpack_trajectory(traj, gamma):
 
 class REINFORCE(DRLAlgorithm):
     def __init__(self, model, optimizer, initial_states_func, initial_states_args, gamma=0.97, grad_clipping=None,
-                 lr_decay_gamma=0.1, lr_decay_step=100, device='cpu'):
+                 lr_decay_gamma=0.1, prior_data_gen=None, xent_lambda=0.3, lr_decay_step=100, device='cpu'):
         assert callable(initial_states_func)
         assert isinstance(initial_states_args, dict)
         self.model = model
@@ -169,6 +169,8 @@ class REINFORCE(DRLAlgorithm):
         self.initial_states_func = initial_states_func
         self.initial_states_args = initial_states_args
         self.grad_clipping = grad_clipping
+        self.prior_data_gen = prior_data_gen
+        self.xent_lambda = xent_lambda
 
     @torch.enable_grad()
     def fit(self, trajectories):
@@ -191,8 +193,24 @@ class REINFORCE(DRLAlgorithm):
                 output, hidden_states = outputs[0], outputs[1:]
                 log_prob = torch.log_softmax(output.view(1, -1), dim=1)
                 top_i = actions[p]
-                rl_loss -= (q_values[p] * log_prob[0, top_i])
-        rl_loss = rl_loss / len(trajectories)
+                rl_loss = rl_loss - (q_values[p] * log_prob[0, top_i])
+
+        # Ensure pretraining effort isn't wiped out.
+        xent_loss = 0.
+        if self.prior_data_gen is not None:
+            criterion = torch.nn.CrossEntropyLoss()
+            for i in range(10):
+                inputs, labels = self.prior_data_gen.random_training_set(batch_size=1)
+                hidden_states = self.initial_states_func(inputs.shape[0], **self.initial_states_args)
+                outputs = self.model([inputs] + hidden_states)
+                predictions = outputs[0]
+                predictions = predictions.permute(1, 0, -1)
+                predictions = predictions.contiguous().view(-1, predictions.shape[-1])
+                labels = labels.contiguous().view(-1)
+                xent_loss = xent_loss + criterion(predictions, labels)
+
+        xent_loss = xent_loss / len(trajectories)
+        rl_loss = rl_loss / len(trajectories) + self.xent_lambda * xent_loss
         rl_loss.backward()
         if self.grad_clipping is not None:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clipping)
