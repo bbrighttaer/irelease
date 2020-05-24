@@ -38,8 +38,6 @@ class RewardFunction:
 
     def __init__(self, reward_net, mc_policy, actions, mc_max_sims=50, max_len=100, end_char='>', device='cpu',
                  expert_func=None):
-        if expert_func:
-            assert callable(expert_func)
         self.model = reward_net
         self.actions = actions
         self.mc_policy = mc_policy
@@ -79,7 +77,7 @@ class RewardFunction:
             # reward = self.model([inp, valid_vec]).squeeze().item()
             # # reward = self.model(state).squeeze().item()
             if len(state) > 0 and valid_vec[0] == 1:
-                _, pred = self.expert_func(smiles)
+                _, pred, _ = self.expert_func(smiles)
                 reward = np.exp(pred[0] / 3)
             else:
                 reward = 0.0

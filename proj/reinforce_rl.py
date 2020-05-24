@@ -17,19 +17,17 @@ import numpy as np
 import torch
 import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
-from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
+from tqdm import trange
 
 from gpmt.data import GeneratorData
-from gpmt.env import MoleculeEnv
-from gpmt.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, \
-    RewardNetRNN, ExpertModel
-from gpmt.predictor import rf_qsar_predictor
+from gpmt.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN
+from gpmt.predictor import RNNPredictor, get_reward_logp
+from gpmt.reinforcement import Reinforcement
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
-    StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
+    StateActionProbRegistry, REINFORCE
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles, canonical_smiles
 
@@ -86,8 +84,8 @@ class IReLeaSE(Trainer):
                                        stack_width=hparams['agent_params']['stack_width'],
                                        stack_depth=hparams['agent_params']['stack_depth'],
                                        k_mask_func=encoder.k_padding_mask))
-            rnn_layers.append(StackedRNNDropout(hparams['dropout']))
-            rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
+            # rnn_layers.append(StackedRNNDropout(hparams['dropout']))
+            # rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
         agent_net = nn.Sequential(encoder,
                                   *rnn_layers,
                                   StackRNNLinear(out_dim=demo_data_gen.n_characters,
@@ -129,7 +127,8 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
-        expert_model = ExpertModel(rf_qsar_predictor, './rf_qsar/')
+
+        expert_model = RNNPredictor(hparams['expert_model_params'], device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device,
                                          mc_max_sims=hparams['monte_carlo_N'],
@@ -209,55 +208,57 @@ class IReLeaSE(Trainer):
         if agent_net_path and agent_net_name:
             print('Loading pretrained model...')
             agent.model.load_state_dict(IReLeaSE.load_model(agent_net_path, agent_net_name))
+            print('Pretrained model loaded successfully!')
 
         start = time.time()
 
         # Begin simulation and training
-        total_rewards = []
         trajectories = []
         done_episodes = 0
-        batch_episodes = 0
         exp_trajectories = []
+        total_rewards = []
         step_idx = 0
-
-        env = MoleculeEnv(actions=get_default_tokens(), reward_func=reward_func)
-        exp_source = ExperienceSourceFirstLast(env, agent, gamma, steps_count=1, steps_delta=1)
-        traj_prob = 1.
-        exp_traj = []
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-
+        n_iterations = 100
+        n_policy = 15
+        n_batch = 10
+        n_to_generate = 200
+        reinforcement = Reinforcement(drl_algorithm.model, drl_algorithm.optimizer, expert_model, get_reward_logp,
+                                      device)
+        rl_losses = []
         with TBMeanTracker(tb_writer, 1) as tracker:
-            for step_idx, exp in tqdm(enumerate(exp_source)):
-                exp_traj.append(exp)
-                traj_prob *= probs_reg.get(list(exp.state), exp.action)
-
-                if exp.last_state is None:
-                    trajectories.append(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action),
-                                                   traj_prob=traj_prob))
-                    exp_trajectories.append(exp_traj)  # for ExperienceFirstLast objects
-                    exp_traj = []
-                    traj_prob = 1.
-                    probs_reg.clear()
-                    batch_episodes += 1
-
-                new_rewards = exp_source.pop_total_rewards()
-                if new_rewards:
-                    reward = new_rewards[0]
-                    done_episodes += 1
-                    total_rewards.append(reward)
+            for i in range(n_iterations):
+                for j in trange(n_policy, desc='Policy gradient...'):
+                    # for _ in range(n_batch):
+                    #     reward = 0
+                    #     while reward == 0:
+                    #         with torch.set_grad_enabled(False):
+                    #             smiles = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                    #                                      num_samples=1)
+                    #         reward = get_reward_jak2_max(smiles, rf_qsar_predictor)
+                    #     total_rewards.append(reward)
+                    #     trajectories.append((smiles[0], reward))
+                    # irl_loss = 0  # irl_algorithm.fit(trajectories)
+                    # rl_loss = drl_algorithm.fit(trajectories)
+                    irl_loss = 0
+                    cur_reward, rl_loss = reinforcement.policy_gradient(demo_data_gen, init_args['gen_args'], n_batch)
+                    total_rewards.append(simple_moving_average(total_rewards, cur_reward))
+                    # rl_losses.append(simple_moving_average(rl_losses, rl_loss))
+                    done_episodes += n_batch
                     mean_rewards = float(np.mean(total_rewards[-100:]))
-                    tracker.track('mean_total_reward', mean_rewards, step_idx)
-                    tracker.track('total_reward', reward, step_idx)
-                    print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
-                          f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
+                    tracker.track('total_reward', mean_rewards, step_idx)
+                    print(f'Time = {time_since(start)}, step = {step_idx}, mean_100 = {mean_rewards:6.2f}, '
+                          f'episodes = {done_episodes}')
                     with torch.set_grad_enabled(False):
                         samples, _ = canonical_smiles(generate_smiles(drl_algorithm.model,
                                                                       demo_data_gen, init_args['gen_args'],
-                                                                      num_samples=200))
-                    _, predictions = expert_model.predict(samples)
+                                                                      num_samples=n_to_generate))
+                    _, predictions, _ = expert_model.predict(samples)
                     score = np.mean(predictions)
+                    print("Mean value of predictions:", predictions.mean())
+                    print("Proportion of valid SMILES:", len(predictions) / n_to_generate)
                     tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                          'baseline': baseline_score,
                                                          'demo_data': demo_score}, step_idx)
@@ -266,30 +267,21 @@ class IReLeaSE(Trainer):
                                           copy.deepcopy(irl_algorithm.model.state_dict())]
                         best_score = score
 
-                    if done_episodes == n_episodes:
-                        print('Training completed!')
-                        break
+                    samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                                              num_samples=3)
+                    print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
+                    tracker.track('irl_loss', irl_loss, step_idx)
+                    tracker.track('agent_loss', rl_loss, step_idx)
 
-                if batch_episodes < episodes_to_train:
-                    continue
-
-                # Train models
-                print('Fitting models...')
-                irl_loss = 0  # irl_algorithm.fit(trajectories)
-                rl_loss = drl_algorithm.fit(exp_trajectories)
-                samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                          num_samples=1)
-                print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
-                tracker.track('irl_loss', irl_loss, step_idx)
-                tracker.track('agent_loss', rl_loss, step_idx)
-
-                # Reset
-                batch_episodes = 0
-                trajectories.clear()
-                exp_trajectories.clear()
+                    # Reset
+                    trajectories.clear()
+                    exp_trajectories.clear()
+                    step_idx += 1
 
         drl_algorithm.model.load_state_dict(best_model_wts[0])
         irl_algorithm.model.load_state_dict(best_model_wts[1])
+        duration = time.time() - start
+        print('\nTraining duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
         return {'model': [drl_algorithm.model, irl_algorithm.model],
                 'score': round(best_score, 3),
                 'epoch': done_episodes}
@@ -307,6 +299,12 @@ class IReLeaSE(Trainer):
     @staticmethod
     def load_model(path, name):
         return torch.load(os.path.join(path, name), map_location=torch.device(device))
+
+
+def simple_moving_average(previous_values, new_value, ma_window_size=10):
+    value_ma = np.sum(previous_values[-(ma_window_size - 1):]) + new_value
+    value_ma = value_ma / (len(previous_values[-(ma_window_size - 1):]) + 1)
+    return value_ma
 
 
 def main(flags):
@@ -363,7 +361,7 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 1500,
-            'dropout': 0.2,
+            'dropout': 0.0,
             'monte_carlo_N': 5,
             'gamma': 0.97,
             'episodes_to_train': 10,
@@ -379,12 +377,22 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 2,
+                             'num_layers': 1,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
-                             'optimizer__global__weight_decay': 0.00005,
-                             'optimizer__global__lr': 0.001}
+                             # 'optimizer__global__weight_decay': 0.00005,
+                             'optimizer__global__lr': 0.001},
+            'expert_model_params': {'model_dir': './model_dir/expert',
+                                    'batch': 128,
+                                    'd_model': 128,
+                                    'rnn_num_layers': 2,
+                                    'dropout': 0.8,
+                                    'is_bidirectional': False,
+                                    'unit_type': 'lstm',
+                                    'optimizer': 'adam',
+                                    # 'optimizer__global__weight_decay': 0.0005,
+                                    'optimizer__global__lr': 0.005}
             }
 
 

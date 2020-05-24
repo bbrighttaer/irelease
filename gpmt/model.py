@@ -17,7 +17,8 @@ import torch.nn.functional as F
 # from torch_scatter import scatter_add, scatter_max
 
 from gpmt.graph_features import ConvMolFeaturizer
-from gpmt.utils import init_hidden, init_cell, get_activation_func, process_gconv_view_data, canonical_smiles
+from gpmt.utils import init_hidden, init_cell, get_activation_func, process_gconv_view_data, canonical_smiles, \
+    pad_sequences, seq2tensor
 
 
 def clone(module, N):
@@ -399,8 +400,8 @@ class StackRNN(nn.Module):
         self.k_padding_mask_func = k_mask_func
         if has_stack:
             input_size = int(input_size + stack_width)
-            self.A_linear = nn.Linear(hidden_size, 3)
-            self.D_linear = nn.Linear(hidden_size, stack_width)
+            self.stack_controls_layer = nn.Linear(hidden_size, 3)
+            self.stack_input_layer = nn.Linear(hidden_size, stack_width)
         else:
             input_size = int(input_size)
         if self.unit_type == 'lstm':
@@ -435,23 +436,19 @@ class StackRNN(nn.Module):
         outputs = []
         for c in range(seq_length):
             if self.has_stack:
-                # Stack update
                 if self.has_cell:
                     hidden_2_stack = hidden[0].view(*hidden_shape)
                 else:
                     hidden_2_stack = hidden
-                hidden_2_stack = hidden_2_stack.permute(1, 0, 2).contiguous().view(batch_size, -1)
-                controls = torch.softmax(self.A_linear(hidden_2_stack), dim=-1)
-                stack_input = torch.tanh(self.D_linear(hidden_2_stack))
-                stack = self.stack_augmentation(stack_input, stack, controls)
-
-                # rnn
+                stack_controls = self.stack_controls_layer(hidden_2_stack)
+                stack_controls = torch.softmax(stack_controls, dim=-1)
+                stack_input = self.stack_input_layer(hidden_2_stack)
+                stack_input = torch.tanh(stack_input)
+                stack = self.stack_augmentation(stack_input.permute(1, 0, 2),
+                                                stack, stack_controls)
                 stack_top = stack[:, 0, :].unsqueeze(0)
-                x_ = x[c, :, :].unsqueeze(0)
-                x_ = torch.cat([x_, stack_top], dim=-1)
-                output, hidden = self.rnn(x_, hidden)
-            else:
-                output, hidden = self.rnn(x, hidden)
+                x = torch.cat((x, stack_top), dim=2)
+            output, hidden = self.rnn(x, hidden)
             outputs.append(output)
         x = torch.cat(outputs)
         inp[0] = x
@@ -465,32 +462,26 @@ class StackRNN(nn.Module):
         """
         Augmentation of the tensor into the stack. For more details see
         https://arxiv.org/abs/1503.01007
-
         Parameters
         ----------
         input_val: torch.tensor
             tensor to be added to stack
-
         prev_stack: torch.tensor
             previous stack state
-
         controls: torch.tensor
             predicted probabilities for each operation in the stack, i.e
             PUSH, POP and NO_OP. Again, see https://arxiv.org/abs/1503.01007
-
         Returns
         -------
         new_stack: torch.tensor
             new stack state
         """
-        input_val = input_val.unsqueeze(1)
         batch_size = prev_stack.size(0)
         controls = controls.view(-1, 3, 1, 1)
-        zeros_at_the_bottom = torch.zeros(batch_size, 1, self.stack_width)
-        zeros_at_the_bottom = zeros_at_the_bottom.to(input_val.device)
+        zeros_at_the_bottom = torch.zeros(batch_size, 1, self.stack_width).to(input_val.device)
         a_push, a_pop, a_no_op = controls[:, 0], controls[:, 1], controls[:, 2]
-        stack_down = torch.cat((prev_stack[:, 1:, :], zeros_at_the_bottom), dim=1)
-        stack_up = torch.cat((input_val, prev_stack[:, :-1, :]), dim=1)
+        stack_down = torch.cat((prev_stack[:, 1:], zeros_at_the_bottom), dim=1)
+        stack_up = torch.cat((input_val, prev_stack[:, :-1]), dim=1)
         new_stack = a_no_op * prev_stack + a_push * stack_up + a_pop * stack_down
         return new_stack
 
@@ -927,13 +918,14 @@ class ExpertModel:
     :param load_path:
         The path of the saved model/weights for initializing the model.
     """
+
     def __init__(self, model, load_path):
-        assert(hasattr(model, 'predict') and hasattr(model, 'load_model'))
-        assert(callable(model.predict) and callable(model.load_model))
-        assert(os.path.exists(load_path))
+        assert (hasattr(model, 'predict') and hasattr(model, 'load_model'))
+        assert (callable(model.predict) and callable(model.load_model))
+        assert (os.path.exists(load_path))
         self.model = model
-        self.model.load_model(load_path)
-        print('Expert model successfully loaded!')
+        # self.model.load_model(load_path)
+        # print('Expert model successfully loaded!')
 
     def predict(self, smiles):
         """
@@ -950,4 +942,53 @@ class ExpertModel:
         return self.predict(*args, **kwargs)
 
 
+class RNNPredictorModel(nn.Module):
+    """
+    Creates the RNN model in https://github.com/isayev/ReLeaSE/blob/batch_training/RecurrentQSAR-example-logp.ipynb
+    """
+
+    def __init__(self, d_model, tokens, padding_char=' ', num_layers=1, dropout=0., bidirectional=False,
+                 unit_type='gru', device='cpu'):
+        super(RNNPredictorModel, self).__init__()
+        self.d_model = d_model
+        self.tokens = tokens
+        self.device = device
+        self.unit_type = unit_type
+        self.num_layers = num_layers
+        self.encoder = nn.Embedding(len(tokens), d_model, padding_idx=tokens.index(padding_char))
+        RNN = {'gru': nn.GRU,
+               'lstm': nn.LSTM}.get(unit_type)
+        self.rnn = RNN(input_size=d_model, hidden_size=d_model, num_layers=num_layers, bidirectional=bidirectional,
+                       dropout=dropout)
+        self.num_directions = max(1, int(bidirectional) + 1)
+        lin_dim = d_model * self.num_directions
+        self.read_out = nn.Sequential(nn.Linear(lin_dim, lin_dim),
+                                      nn.ReLU(),
+                                      nn.Linear(lin_dim, 1))
+
+    def forward(self, x):
+        """
+        Performs forward propagation to get predictions.
+
+        Arguments:
+        ----------
+        :param x: list
+            A list of SMILES strings as input to the model.
+        :return: tensor
+            predictions corresponding to x.
+        """
+        batch_size = len(x)
+        x, states_len = pad_sequences(x)
+        x, _ = seq2tensor(x, self.tokens)
+        x = torch.from_numpy(x).long().to(self.device)
+        x = self.encoder(x)
+        x = x.permute(1, 0, 2)
+        h0 = torch.zeros(self.num_layers * self.num_directions, batch_size, self.d_model).to(self.device)
+        if self.unit_type == 'lstm':
+            c0 = torch.zeros(self.num_layers * self.num_directions, batch_size, self.d_model).to(self.device)
+            h0 = (h0, c0)
+        x, hidden = self.rnn(x, h0)
+        x = x[-1, :, :].reshape(batch_size, -1)
+        x = self.read_out(x)
+        return x
 

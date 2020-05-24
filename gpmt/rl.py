@@ -16,7 +16,7 @@ from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
 from tqdm import trange
 
-from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles
+from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles, char_to_tensor
 
 EpisodeStep = namedtuple('EpisodeStep', ['state', 'action'])
 Trajectory = namedtuple('Trajectory', ['terminal_state', 'traj_prob'])
@@ -182,16 +182,15 @@ class REINFORCE(DRLAlgorithm):
         rl_loss = 0.
         for t in trange(len(trajectories), desc='REINFORCE opt...'):
             trajectory = trajectories[t]
-            states, actions, q_values = unpack_trajectory(trajectory, self.gamma)
-            (states, state_len), actions = _preprocess_states_actions(actions, states, self.device)
+            smiles, discounted_reward = trajectory
+            trajectory_input = char_to_tensor(smiles, self.device)
             hidden_states = self.initial_states_func(1, **self.initial_states_args)
-            trajectory_input = states[-1]  # since the last state captures all previous states
-            discounted_reward = trajectory[-1].reward
-            for p in range(len(trajectory)):
+            for p in range(len(trajectory_input) - 1):
                 outputs = self.model([trajectory_input[p].reshape(1, 1)] + hidden_states)
                 output, hidden_states = outputs[0], outputs[1:]
                 log_prob = torch.log_softmax(output.view(1, -1), dim=1)
-                rl_loss -= (discounted_reward * log_prob[0, actions[p]])
+                top_i = trajectory_input[p + 1]
+                rl_loss -= (discounted_reward * log_prob[0, top_i])
                 discounted_reward = discounted_reward * self.gamma
         rl_loss = rl_loss / len(trajectories)
         rl_loss.backward()
@@ -366,7 +365,6 @@ class PPO(DRLAlgorithm):
                     log_prob = torch.log_softmax(output.view(1, -1), dim=1)
                     old_probs.append(log_prob[0, actions[p]].item())
                 t_old_probs.append(old_probs)
-
 
 
 class GuidedRewardLearningIRL(DRLAlgorithm):

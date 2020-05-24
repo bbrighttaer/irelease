@@ -1,13 +1,12 @@
 # Original code from: https://github.com/isayev/ReLeaSE
 
-import os
 import csv
-import time
 import math
-import numpy as np
+import time
 import warnings
+
+import numpy as np
 import torch
-import pickle
 from rdkit import Chem
 from rdkit import DataStructs
 from rdkit import RDLogger
@@ -418,6 +417,16 @@ def get_default_tokens():
     return tokens
 
 
+def char_to_tensor(string, device, tokens=None):
+    if tokens is None:
+        tokens = get_default_tokens()
+    tensor = torch.zeros(len(string)).long()
+    for c in range(len(string)):
+        tensor[c] = tokens.index(string[c])
+    tensor = tensor.to(device)
+    return tensor.clone()
+
+
 def parse_optimizer(hparams, model):
     """
     Creates an optimizer for the given model using the argumentes specified in
@@ -434,7 +443,9 @@ def parse_optimizer(hparams, model):
         "adadelta": torch.optim.Adadelta,
         "adagrad": torch.optim.Adagrad,
         "adam": torch.optim.Adam,
-        "Rprop": torch.optim.Rprop,
+        "rmsprop": torch.optim.RMSprop,
+        "adamax": torch.optim.Adamax,
+        "rprop": torch.optim.Rprop,
         "sgd": torch.optim.SGD,
     }.get(hparams["optimizer"].lower(), None)
     assert optimizer is not None, "{} optimizer could not be found"
@@ -552,8 +563,6 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
             else:
                 stack = None
             hidden_states.append((hidden, cell, stack))
-        else:
-            stack = None
 
     prime_input, _ = seq2tensor([prime_str] * num_samples, tokens=gen_data.all_characters, flip=False)
     prime_input = torch.from_numpy(prime_input).long().to(init_args['device'])
@@ -621,6 +630,8 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
         if end_token in sample:
             end_token_idx = sample.index(end_token)
             string_samples.append(''.join(sample[1:end_token_idx]))
+        else:
+            string_samples.append(''.join(sample[1:]))
     return string_samples
 
 
