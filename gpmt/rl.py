@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
-from torch.optim.lr_scheduler import StepLR, ExponentialLR
+from torch.optim.lr_scheduler import StepLR
 from tqdm import trange
 
 from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles
@@ -369,6 +369,8 @@ class PPO(DRLAlgorithm):
         t_old_probs = []
         for traj in trajectories:
             states, actions, adv_v, ref_v = self.calc_adv_ref(traj)
+            if len(states) == 0:
+                continue
             t_states.append(states)
             t_actions.append(actions)
             t_adv.append(adv_v)
@@ -386,10 +388,13 @@ class PPO(DRLAlgorithm):
                     old_probs.append(log_prob[0, actions[p]].item())
                 t_old_probs.append(old_probs)
 
+        if len(t_states) == 0:
+            return 0., 0.
+
         for epoch in trange(self.ppo_epochs, desc='PPO optimization...'):
             cr_loss = 0.
             ac_loss = 0.
-            for i in range(len(trajectories)):
+            for i in range(len(t_states)):
                 traj_last_state = t_states[i][-1]
                 traj_actions = t_actions[i]
                 traj_adv = t_adv[i]
@@ -424,7 +429,7 @@ class PPO(DRLAlgorithm):
             ac_loss.backward()
             self.critic_opt.step()
             self.actor_opt.step()
-        return cr_loss.item(), ac_loss.item()
+        return cr_loss.item(), -ac_loss.item()
 
 
 class GuidedRewardLearningIRL(DRLAlgorithm):
