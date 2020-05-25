@@ -75,13 +75,13 @@ class RewardFunction:
             # Get reward of completed string using the reward net
             # state = x[1:-1]
             state = ''.join(x.tolist())
-            # smiles, valid_vec = canonical_smiles([state])
-            # valid_vec = torch.tensor(valid_vec).view(-1, 1).float().to(self.device)
-            # inp, _ = seq2tensor([state], tokens=self.actions)
-            # inp = torch.from_numpy(inp).long().to(self.device)
-            # reward = self.model([inp, valid_vec]).squeeze().item()
+            smiles, valid_vec = canonical_smiles([state])
+            valid_vec = torch.tensor(valid_vec).view(-1, 1).float().to(self.device)
+            inp, _ = seq2tensor([state], tokens=self.actions)
+            inp = torch.from_numpy(inp).long().to(self.device)
+            reward = self.model([inp, valid_vec]).squeeze().item()
             # reward = self.model(state).squeeze().item()
-            reward = get_reward_logp(state[1:-1], self.expert_func)
+            # reward = get_reward_logp(state[1:-1], self.expert_func)
             return reward
 
     def expert_reward(self, x):

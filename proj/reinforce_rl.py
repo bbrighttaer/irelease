@@ -38,7 +38,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -392,15 +392,15 @@ def default_hparams(args):
             'episodes_to_train': 10,
             'reinforce_max_norm': None,
             'lr_decay_gamma': 0.1,
-            'lr_decay_step_size': 1000,
-            'xent_lambda': 0.4,
-            'reward_params': {'num_layers': 3,
+            'lr_decay_step_size': 100,
+            'xent_lambda': 0.0,
+            'reward_params': {'num_layers': 2,
                               'd_model': 256,
                               'unit_type': 'lstm',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
-                              'optimizer': 'adam',
-                              'optimizer__global__weight_decay': 0.00005,
+                              'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,

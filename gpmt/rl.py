@@ -182,6 +182,7 @@ class REINFORCE(DRLAlgorithm):
         :param trajectories: list
         """
         rl_loss = 0.
+        self.optimizer.zero_grad()
         for t in trange(len(trajectories), desc='REINFORCE opt...'):
             trajectory = trajectories[t]
             states, actions, q_values = unpack_trajectory(trajectory, self.gamma)
@@ -197,17 +198,17 @@ class REINFORCE(DRLAlgorithm):
 
         # Ensure pretraining effort isn't wiped out.
         xent_loss = 0.
-        if self.prior_data_gen is not None:
-            criterion = torch.nn.CrossEntropyLoss()
-            for i in range(10):
-                inputs, labels = self.prior_data_gen.random_training_set(batch_size=1)
-                hidden_states = self.initial_states_func(inputs.shape[0], **self.initial_states_args)
-                outputs = self.model([inputs] + hidden_states)
-                predictions = outputs[0]
-                predictions = predictions.permute(1, 0, -1)
-                predictions = predictions.contiguous().view(-1, predictions.shape[-1])
-                labels = labels.contiguous().view(-1)
-                xent_loss = xent_loss + criterion(predictions, labels)
+        # if self.prior_data_gen is not None:
+        #     criterion = torch.nn.CrossEntropyLoss()
+        #     for i in range(10):
+        #         inputs, labels = self.prior_data_gen.random_training_set(batch_size=1)
+        #         hidden_states = self.initial_states_func(inputs.shape[0], **self.initial_states_args)
+        #         outputs = self.model([inputs] + hidden_states)
+        #         predictions = outputs[0]
+        #         predictions = predictions.permute(1, 0, -1)
+        #         predictions = predictions.contiguous().view(-1, predictions.shape[-1])
+        #         labels = labels.contiguous().view(-1)
+        #         xent_loss = xent_loss + criterion(predictions, labels)
 
         xent_loss = xent_loss / len(trajectories)
         rl_loss = (1 - self.xent_lambda) * (rl_loss / len(trajectories)) + self.xent_lambda * xent_loss
