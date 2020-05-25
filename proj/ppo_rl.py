@@ -39,7 +39,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -302,7 +302,7 @@ class IReLeaSE(Trainer):
 
                 # Train models
                 print('Fitting models...')
-                irl_loss = 0  # irl_algorithm.fit(trajectories)
+                irl_loss = irl_algorithm.fit(trajectories)
                 rl_loss = drl_algorithm.fit(exp_trajectories)
                 samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                           num_samples=3)
@@ -406,19 +406,18 @@ def default_hparams(args):
             'use_monte_carlo_sim': False,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 2,
+            'episodes_to_train': 10,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
-            'ppo_epochs': 2,
-            'xent_lambda': 0.4,
-            'reward_params': {'num_layers': 1,
-                              'd_model': 128,
-                              'unit_type': 'gru',
+            'ppo_epochs': 10,
+            'reward_params': {'num_layers': 2,
+                              'd_model': 256,
+                              'unit_type': 'lstm',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
-                              'optimizer': 'adam',
-                              'optimizer__global__weight_decay': 0.0005,
+                              'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,

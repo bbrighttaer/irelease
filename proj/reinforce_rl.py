@@ -384,7 +384,7 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 1500,
-            'dropout': 0.2,
+            'dropout': 0.0,
             'monte_carlo_N': 5,
             'use_monte_carlo_sim': False,
             'no_mc_fill_val': 0.0,
@@ -392,7 +392,7 @@ def default_hparams(args):
             'episodes_to_train': 10,
             'reinforce_max_norm': None,
             'lr_decay_gamma': 0.1,
-            'lr_decay_step_size': 100,
+            'lr_decay_step_size': 1000,
             'xent_lambda': 0.0,
             'reward_params': {'num_layers': 2,
                               'd_model': 256,
