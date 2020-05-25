@@ -181,6 +181,7 @@ class REINFORCE(DRLAlgorithm):
         --------------
         :param trajectories: list
         """
+        self.optimizer.zero_grad()
         rl_loss = 0.
         for t in trange(len(trajectories), desc='REINFORCE opt...'):
             trajectory = trajectories[t]
@@ -294,7 +295,7 @@ class PPO(DRLAlgorithm):
         return states[:-1], actions[:-1], adv_v, ref_v
 
     @torch.enable_grad()
-    def fit(self, trajectories):
+    def fit_batch(self, trajectories):
         # Calculate GAE
         batch_states, batch_actions, batch_adv, batch_ref = [], [], [], []
         for traj in trajectories:
@@ -361,28 +362,69 @@ class PPO(DRLAlgorithm):
                 self.actor_opt.step()
         return np.mean(sum_loss_value), np.mean(sum_loss_policy)
 
-    # @torch.enable_grad()
-    # def fit(self, trajectories):
-    #     t_states, t_actions, t_adv, t_ref = [], [], [], []
-    #     t_old_probs = []
-    #     for traj in trajectories:
-    #         states, actions, adv_v, ref_v = self.calc_adv_ref(traj)
-    #         (states, _), actions = _preprocess_states_actions(actions, states, self.device)
-    #         t_states.append(states)
-    #         t_actions.append(actions)
-    #         t_adv.append(adv_v)
-    #         t_ref.append(ref_v)
-    #
-    #         with torch.set_grad_enabled(False):
-    #             hidden_states = self.initial_states_func(batch_size=1, **self.initial_states_args)
-    #             trajectory_input = states[-1]
-    #             old_probs = []
-    #             for p in range(len(traj)):
-    #                 outputs = self.model([trajectory_input[p].reshape(1, 1)] + hidden_states)
-    #                 output, hidden_states = outputs[0], outputs[1:]
-    #                 log_prob = torch.log_softmax(output.view(1, -1), dim=1)
-    #                 old_probs.append(log_prob[0, actions[p]].item())
-    #             t_old_probs.append(old_probs)
+    @torch.enable_grad()
+    def fit(self, trajectories):
+        sq2ten = lambda x: torch.from_numpy(seq2tensor(x, get_default_tokens())[0]).long().to(self.device)
+        t_states, t_actions, t_adv, t_ref = [], [], [], []
+        t_old_probs = []
+        for traj in trajectories:
+            states, actions, adv_v, ref_v = self.calc_adv_ref(traj)
+            t_states.append(states)
+            t_actions.append(actions)
+            t_adv.append(adv_v)
+            t_ref.append(ref_v)
+
+            with torch.set_grad_enabled(False):
+                hidden_states = self.initial_states_func(batch_size=1, **self.initial_states_args)
+                trajectory_input = sq2ten(states[-1])
+                actions = sq2ten(actions)
+                old_probs = []
+                for p in range(len(trajectory_input)):
+                    outputs = self.model([trajectory_input[p].reshape(1, 1)] + hidden_states)
+                    output, hidden_states = outputs[0], outputs[1:]
+                    log_prob = torch.log_softmax(output.view(1, -1), dim=1)
+                    old_probs.append(log_prob[0, actions[p]].item())
+                t_old_probs.append(old_probs)
+
+        for epoch in trange(self.ppo_epochs, desc='PPO optimization...'):
+            cr_loss = 0.
+            ac_loss = 0.
+            for i in range(len(trajectories)):
+                traj_last_state = t_states[i][-1]
+                traj_actions = t_actions[i]
+                traj_adv = t_adv[i]
+                traj_ref = t_ref[i]
+                traj_old_probs = t_old_probs[i]
+                hidden_states = self.initial_states_func(1, **self.initial_states_args)
+                for p in range(len(traj_last_state)):
+                    state, action, adv = traj_last_state[p], traj_actions[p], traj_adv[p]
+                    old_log_prob = traj_old_probs[p]
+                    state, action = sq2ten(state), sq2ten(action)
+
+                    # Critic
+                    pred = self.critic(state)
+                    cr_loss = cr_loss + F.mse_loss(pred.reshape(-1, 1), traj_ref[p].reshape(-1, 1))
+
+                    # Actor
+                    outputs = self.actor([state] + hidden_states)
+                    output, hidden_states = outputs[0], outputs[1:]
+                    logprob_pi_v = torch.log_softmax(output.view(1, -1), dim=-1)
+                    logprob_pi_v = logprob_pi_v[0, action]
+                    ratio_v = torch.exp(logprob_pi_v - old_log_prob)
+                    surr_obj_v = adv * ratio_v
+                    clipped_surr_v = adv * torch.clamp(ratio_v, 1.0 - self.ppo_eps, 1.0 + self.ppo_eps)
+                    loss_policy_v = torch.min(surr_obj_v, clipped_surr_v)
+                    ac_loss = ac_loss - loss_policy_v
+            # Update weights
+            self.critic_opt.zero_grad()
+            self.actor_opt.zero_grad()
+            cr_loss = cr_loss / len(trajectories)
+            ac_loss = ac_loss / len(trajectories)
+            cr_loss.backward()
+            ac_loss.backward()
+            self.critic_opt.step()
+            self.actor_opt.step()
+        return cr_loss.item(), ac_loss.item()
 
 
 class GuidedRewardLearningIRL(DRLAlgorithm):
