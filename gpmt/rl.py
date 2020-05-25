@@ -294,7 +294,7 @@ class PPO(DRLAlgorithm):
         return states[:-1], actions[:-1], adv_v, ref_v
 
     @torch.enable_grad()
-    def fit_old(self, trajectories):
+    def fit(self, trajectories):
         # Calculate GAE
         batch_states, batch_actions, batch_adv, batch_ref = [], [], [], []
         for traj in trajectories:
@@ -361,28 +361,28 @@ class PPO(DRLAlgorithm):
                 self.actor_opt.step()
         return np.mean(sum_loss_value), np.mean(sum_loss_policy)
 
-    @torch.enable_grad()
-    def fit(self, trajectories):
-        t_states, t_actions, t_adv, t_ref = [], [], [], []
-        t_old_probs = []
-        for traj in trajectories:
-            states, actions, adv_v, ref_v = self.calc_adv_ref(traj)
-            (states, _), actions = _preprocess_states_actions(actions, states, self.device)
-            t_states.append(states)
-            t_actions.append(actions)
-            t_adv.append(adv_v)
-            t_ref.append(ref_v)
-
-            with torch.set_grad_enabled(False):
-                hidden_states = self.initial_states_func(batch_size=1, **self.initial_states_args)
-                trajectory_input = states[-1]
-                old_probs = []
-                for p in range(len(traj)):
-                    outputs = self.model([trajectory_input[p].reshape(1, 1)] + hidden_states)
-                    output, hidden_states = outputs[0], outputs[1:]
-                    log_prob = torch.log_softmax(output.view(1, -1), dim=1)
-                    old_probs.append(log_prob[0, actions[p]].item())
-                t_old_probs.append(old_probs)
+    # @torch.enable_grad()
+    # def fit(self, trajectories):
+    #     t_states, t_actions, t_adv, t_ref = [], [], [], []
+    #     t_old_probs = []
+    #     for traj in trajectories:
+    #         states, actions, adv_v, ref_v = self.calc_adv_ref(traj)
+    #         (states, _), actions = _preprocess_states_actions(actions, states, self.device)
+    #         t_states.append(states)
+    #         t_actions.append(actions)
+    #         t_adv.append(adv_v)
+    #         t_ref.append(ref_v)
+    #
+    #         with torch.set_grad_enabled(False):
+    #             hidden_states = self.initial_states_func(batch_size=1, **self.initial_states_args)
+    #             trajectory_input = states[-1]
+    #             old_probs = []
+    #             for p in range(len(traj)):
+    #                 outputs = self.model([trajectory_input[p].reshape(1, 1)] + hidden_states)
+    #                 output, hidden_states = outputs[0], outputs[1:]
+    #                 log_prob = torch.log_softmax(output.view(1, -1), dim=1)
+    #                 old_probs.append(log_prob[0, actions[p]].item())
+    #             t_old_probs.append(old_probs)
 
 
 class GuidedRewardLearningIRL(DRLAlgorithm):

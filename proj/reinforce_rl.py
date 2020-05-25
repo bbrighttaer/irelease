@@ -236,7 +236,7 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        demo_score =np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
+        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
         n_to_generate = 200
         with TBMeanTracker(tb_writer, 1) as tracker:
