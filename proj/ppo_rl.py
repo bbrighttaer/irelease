@@ -39,7 +39,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 1
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -225,7 +225,8 @@ class IReLeaSE(Trainer):
         # load pretrained model
         if agent_net_path and agent_net_name:
             print('Loading pretrained model...')
-            agent.model.load_state_dict(IReLeaSE.load_model(agent_net_path, agent_net_name))
+            weights = IReLeaSE.load_model(agent_net_path, agent_net_name)
+            agent.model.load_state_dict(weights)
             print('Pretrained model loaded successfully!')
 
         start = time.time()
@@ -399,7 +400,7 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 15,
+    return {'d_model': 1500,
             'dropout': 0.1,
             'monte_carlo_N': 1,
             'use_monte_carlo_sim': False,
@@ -420,8 +421,8 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 2,
-                             'stack_width': 15,
+                             'num_layers': 1,
+                             'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.00005,
