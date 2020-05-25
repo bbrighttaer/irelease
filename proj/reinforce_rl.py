@@ -236,8 +236,8 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        demo_score = 0.  # np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
-        baseline_score = 0.  # np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
+        demo_score =np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
+        baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
         n_to_generate = 200
         with TBMeanTracker(tb_writer, 1) as tracker:
             for step_idx, exp in tqdm(enumerate(exp_source)):
@@ -384,24 +384,24 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 1500,
-            'dropout': 0.0,
+            'dropout': 0.2,
             'monte_carlo_N': 5,
-            'use_monte_carlo_sim': True,
+            'use_monte_carlo_sim': False,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
             'episodes_to_train': 10,
             'reinforce_max_norm': None,
             'lr_decay_gamma': 0.1,
             'lr_decay_step_size': 1000,
-            'xent_lambda': 0.3,
-            'reward_params': {'num_layers': 1,
-                              'd_model': 128,
-                              'unit_type': 'gru',
+            'xent_lambda': 0.4,
+            'reward_params': {'num_layers': 3,
+                              'd_model': 256,
+                              'unit_type': 'lstm',
                               'demo_batch_size': 32,
-                              'irl_alg_num_iter': 2,
+                              'irl_alg_num_iter': 5,
                               'optimizer': 'adam',
                               'optimizer__global__weight_decay': 0.00005,
-                              'optimizer__global__lr': 0.01, },
+                              'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
                              'stack_width': 1500,

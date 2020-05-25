@@ -6,19 +6,21 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import os
 import copy
 import math
+import os
 
 import rdkit.Chem as Chem
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# from torch_scatter import scatter_add, scatter_max
 
 from gpmt.graph_features import ConvMolFeaturizer
 from gpmt.utils import init_hidden, init_cell, get_activation_func, process_gconv_view_data, canonical_smiles, \
     pad_sequences, seq2tensor
+
+
+# from torch_scatter import scatter_add, scatter_max
 
 
 def clone(module, N):
@@ -569,9 +571,8 @@ class RewardNetRNN(nn.Module):
         self.proj_net = nn.Sequential(nn.Linear(input_size, hidden_size),
                                       nn.LayerNorm(hidden_size),
                                       nn.ELU())
-        self.linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
-        self.reward_net = nn.Sequential(nn.LayerNorm(hidden_size + 1),
-                                        nn.Linear(self.hidden_size + 1, 1))
+        # self.linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
+        self.reward_net = nn.Linear(self.hidden_size * self.num_dir + 1, 1)
 
     def forward(self, inp):
         """
@@ -601,17 +602,17 @@ class RewardNetRNN(nn.Module):
         # Apply base rnn
         output, hidden = self.base_rnn(x, hidden)
 
-        # Additive attention, see: http://arxiv.org/abs/1409.0473
-        for i in range(seq_len):
-            h = hidden_[0] if self.has_cell else hidden_
-            s = h.unsqueeze(0).expand(seq_len, *h.shape)
-            x_ = torch.cat([output, s], dim=-1)
-            logits = self.linear(x_.contiguous().view(-1, x_.shape[-1]))
-            wts = torch.softmax(logits.view(seq_len, batch_size).t(), -1).unsqueeze(2)
-            x_ = x_.permute(1, 2, 0)
-            ctx = x_.bmm(wts).squeeze(dim=2)
-            hidden_ = self.post_rnn(ctx, hidden_)
-        rw_x = hidden_[0] if self.has_cell else hidden_
+        # # Additive attention, see: http://arxiv.org/abs/1409.0473
+        # for i in range(seq_len):
+        #     h = hidden_[0] if self.has_cell else hidden_
+        #     s = h.unsqueeze(0).expand(seq_len, *h.shape)
+        #     x_ = torch.cat([output, s], dim=-1)
+        #     logits = self.linear(x_.contiguous().view(-1, x_.shape[-1]))
+        #     wts = torch.softmax(logits.view(seq_len, batch_size).t(), -1).unsqueeze(2)
+        #     x_ = x_.permute(1, 2, 0)
+        #     ctx = x_.bmm(wts).squeeze(dim=2)
+        #     hidden_ = self.post_rnn(ctx, hidden_)
+        rw_x = output[-1]  # hidden_[0] if self.has_cell else hidden_
         rw_x = torch.cat([rw_x, inp[-1]], dim=-1)
         reward = self.reward_net(rw_x)
         return reward

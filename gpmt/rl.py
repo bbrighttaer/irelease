@@ -11,12 +11,12 @@ from collections import namedtuple
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import StepLR, ExponentialLR
 from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
+from torch.optim.lr_scheduler import StepLR, ExponentialLR
 from tqdm import trange
 
-from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles, char_to_tensor
+from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles
 
 EpisodeStep = namedtuple('EpisodeStep', ['state', 'action'])
 Trajectory = namedtuple('Trajectory', ['terminal_state', 'traj_prob'])
@@ -210,7 +210,7 @@ class REINFORCE(DRLAlgorithm):
                 xent_loss = xent_loss + criterion(predictions, labels)
 
         xent_loss = xent_loss / len(trajectories)
-        rl_loss = rl_loss / len(trajectories) + self.xent_lambda * xent_loss
+        rl_loss = (1 - self.xent_lambda) * (rl_loss / len(trajectories)) + self.xent_lambda * xent_loss
         rl_loss.backward()
         if self.grad_clipping is not None:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clipping)
@@ -395,7 +395,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
                  use_buffer=True, buffer_size=1000, buffer_batch_size=100, device='cpu'):
         self.model = model
         self.optimizer = optimizer
-        self.lr_sch = ExponentialLR(self.optimizer, gamma=0.95)
+        self.lr_sch = StepLR(self.optimizer, gamma=0.95, step_size=500)
         self.demo_gen_data = demo_gen_data
         self.k = k
         self.device = device
@@ -461,7 +461,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             # xx, yy = torch.meshgrid(d_out_combined.view(-1, ), d_out_combined.view(-1, ))
             # sqr_diffs = torch.pow(xx - yy, 2)
             # reg_loss = sim_values * sqr_diffs
-            reg_loss = 0. # torch.mean(torch.sum(reg_loss, dim=1))
+            reg_loss = 0.  # torch.mean(torch.sum(reg_loss, dim=1))
 
             # objective
             loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out)) - reg_loss
@@ -472,7 +472,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            self.lr_sch.step()
+            # self.lr_sch.step()
         return np.mean(losses)
 
 
