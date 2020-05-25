@@ -625,7 +625,7 @@ class CriticRNN(nn.Module):
         self.has_cell = unit_type == 'lstm'
         self.hidden_size = hidden_size
         self.rnn = rnn(input_size, hidden_size, num_layers, bidirectional=True)
-        self.num_layers = 1
+        self.num_layers = num_layers
         self.norm = nn.LayerNorm(hidden_size * 2)
         self.linear = nn.Linear(hidden_size * 2, 1)
 
@@ -642,7 +642,7 @@ class CriticRNN(nn.Module):
         batch_size = x.shape[1]
         hidden = init_hidden(self.num_layers, batch_size, self.hidden_size, 2, x.device)
         if self.has_cell:
-            cell = init_cell(self.num_layers, x.shape[1], self.hidden_size, 2, x.device)
+            cell = init_cell(self.num_layers, batch_size, self.hidden_size, 2, x.device)
             hidden = (hidden, cell)
         x, _ = self.rnn(x, hidden)
         x = self.linear(self.norm(x))
