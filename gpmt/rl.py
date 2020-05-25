@@ -181,7 +181,6 @@ class REINFORCE(DRLAlgorithm):
         --------------
         :param trajectories: list
         """
-        self.optimizer.zero_grad()
         rl_loss = 0.
         self.optimizer.zero_grad()
         for t in trange(len(trajectories), desc='REINFORCE opt...'):
