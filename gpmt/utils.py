@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from rdkit import Chem
 from rdkit import DataStructs
+from rdkit.Chem import AllChem
 from rdkit import RDLogger
 from sklearn.model_selection import KFold, StratifiedKFold
 from tqdm import trange
@@ -512,6 +513,38 @@ class GradStats(object):
             self.writer.add_scalar("grad_max", mx, step_idx)
             self.writer.add_scalar("grad_var", vr, step_idx)
         return "Grads stats (w={}): L2={}, max={}, var={}".format(int(self._window), self.l2, self.max, self.var)
+
+
+def calculate_internal_diversity(smiles, radius=2):
+    """
+    Calculates internal diversity of the given compounds.
+    See http://arxiv.org/abs/1708.08227
+
+    Arguments:
+    ------------
+    :param smiles: list or tuple
+        Compounds to be used for calculating internal diversity
+    :param radius: int
+        The circular fingerprint radius (NB: 2 corresponds to ECFP4)
+    :return: float
+        internal diversity value
+    """
+    smiles, _ = canonical_smiles(smiles)
+    smiles = [s for s in smiles if len(s) > 0]
+    diversity = np.zeros((len(smiles), len(smiles)))
+    compounds = [AllChem.GetMorganFingerprint(Chem.MolFromSmiles(s), radius) for s in smiles]
+    hist = {}
+    for i in trange(len(smiles), desc='Calculating Internal Diversity...'):
+        c1 = compounds[i]
+        for j, c2 in enumerate(compounds):
+            if (c1, c2) in hist:
+                td = hist[(c1, c2)]
+            else:
+                td = 1 - DataStructs.TanimotoSimilarity(c1, c2)
+                hist[(c1, c2)] = hist[(c2, c1)] = td
+            diversity[i, j] = td
+    diversity = diversity.mean()
+    return diversity
 
 
 def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>', max_len=100, num_samples=5,

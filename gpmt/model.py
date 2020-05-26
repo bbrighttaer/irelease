@@ -551,9 +551,11 @@ class StackedRNNLayerNorm(nn.Module):
 
 
 class RewardNetRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, bidirectional=True, dropout=0., unit_type='lstm'):
+    def __init__(self, input_size, hidden_size, num_layers, bidirectional=True, dropout=0., unit_type='lstm',
+                 use_attention=False):
         super(RewardNetRNN, self).__init__()
         self.num_dir = 1
+        self.use_attention = use_attention
         if num_layers == 1:
             dropout = 0.
         self.num_layers = num_layers
@@ -563,16 +565,21 @@ class RewardNetRNN(nn.Module):
         if unit_type == 'lstm':
             self.has_cell = True
             self.base_rnn = nn.LSTM(hidden_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
-            self.post_rnn = nn.LSTMCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
+            if use_attention:
+                self.post_rnn = nn.LSTMCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
         else:
             self.has_cell = False
             self.base_rnn = nn.GRU(hidden_size, hidden_size, num_layers, dropout=dropout, bidirectional=bidirectional)
-            self.post_rnn = nn.GRUCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
+            if use_attention:
+                self.post_rnn = nn.GRUCell((hidden_size * self.num_dir) + hidden_size, hidden_size)
         self.proj_net = nn.Sequential(nn.Linear(input_size, hidden_size),
                                       nn.LayerNorm(hidden_size),
                                       nn.ELU())
-        # self.linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
-        self.reward_net = nn.Linear(self.hidden_size * self.num_dir + 1, 1)
+        lin_dim = hidden_size * self.num_dir
+        if use_attention:
+            self.attn_linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
+            lin_dim = hidden_size
+        self.reward_net = nn.Linear(lin_dim + 1, 1)
 
     def forward(self, inp):
         """
@@ -602,17 +609,20 @@ class RewardNetRNN(nn.Module):
         # Apply base rnn
         output, hidden = self.base_rnn(x, hidden)
 
-        # # Additive attention, see: http://arxiv.org/abs/1409.0473
-        # for i in range(seq_len):
-        #     h = hidden_[0] if self.has_cell else hidden_
-        #     s = h.unsqueeze(0).expand(seq_len, *h.shape)
-        #     x_ = torch.cat([output, s], dim=-1)
-        #     logits = self.linear(x_.contiguous().view(-1, x_.shape[-1]))
-        #     wts = torch.softmax(logits.view(seq_len, batch_size).t(), -1).unsqueeze(2)
-        #     x_ = x_.permute(1, 2, 0)
-        #     ctx = x_.bmm(wts).squeeze(dim=2)
-        #     hidden_ = self.post_rnn(ctx, hidden_)
-        rw_x = output[-1]  # hidden_[0] if self.has_cell else hidden_
+        # Additive attention, see: http://arxiv.org/abs/1409.0473
+        if self.use_attention:
+            for i in range(seq_len):
+                h = hidden_[0] if self.has_cell else hidden_
+                s = h.unsqueeze(0).expand(seq_len, *h.shape)
+                x_ = torch.cat([output, s], dim=-1)
+                logits = self.attn_linear(x_.contiguous().view(-1, x_.shape[-1]))
+                wts = torch.softmax(logits.view(seq_len, batch_size).t(), -1).unsqueeze(2)
+                x_ = x_.permute(1, 2, 0)
+                ctx = x_.bmm(wts).squeeze(dim=2)
+                hidden_ = self.post_rnn(ctx, hidden_)
+            rw_x = hidden_[0] if self.has_cell else hidden_
+        else:
+            rw_x = output[-1]
         rw_x = torch.cat([rw_x, inp[-1]], dim=-1)
         reward = self.reward_net(rw_x)
         return reward

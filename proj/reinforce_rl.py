@@ -7,6 +7,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import argparse
+import contextlib
 import copy
 import os
 import random
@@ -30,7 +31,7 @@ from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, REINFORCE, Trajectory, EpisodeStep
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles
+    time_since, generate_smiles, calculate_internal_diversity
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -126,7 +127,8 @@ class IReLeaSE(Trainer):
                                    RewardNetRNN(input_size=hparams['d_model'],
                                                 hidden_size=hparams['reward_params']['d_model'],
                                                 num_layers=hparams['reward_params']['num_layers'],
-                                                bidirectional=True,
+                                                bidirectional=hparams['reward_params']['bidirectional'],
+                                                use_attention=hparams['reward_params']['use_attention'],
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
@@ -136,7 +138,8 @@ class IReLeaSE(Trainer):
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
                                          expert_func=expert_model,
-                                         no_mc_fill_val=hparams['no_mc_fill_val'])
+                                         no_mc_fill_val=hparams['no_mc_fill_val'],
+                                         use_true_reward=hparams['use_true_reward'])
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         demo_data_gen.set_batch_size(hparams['reward_params']['demo_batch_size'])
         irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, demo_data_gen,
@@ -196,12 +199,14 @@ class IReLeaSE(Trainer):
         return {'demo_data': demo_data, 'unbiased_data': unbiased_data, 'prior_data': prior_data}
 
     @staticmethod
-    def evaluate(*args, **kwargs):
-        super().evaluate(*args, **kwargs)
+    def evaluate(res_dict, generated_smiles):
+        div_score = calculate_internal_diversity(generated_smiles)
+        res_dict['internal diversity'] = div_score
+        return div_score
 
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
-              tb_writer=None, is_hsearch=False):
+              tb_writer=None, is_hsearch=False, n_to_generate=1000, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -238,73 +243,81 @@ class IReLeaSE(Trainer):
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-        n_to_generate = 200
-        with TBMeanTracker(tb_writer, 1) as tracker:
-            for step_idx, exp in tqdm(enumerate(exp_source)):
-                exp_traj.append(exp)
-                traj_prob *= probs_reg.get(list(exp.state), exp.action)
+        with contextlib.suppress(TypeError):  # Mostly arises when generator is not generating valid SMILES
+            with TBMeanTracker(tb_writer, 1) as tracker:
+                for step_idx, exp in tqdm(enumerate(exp_source)):
+                    exp_traj.append(exp)
+                    traj_prob *= probs_reg.get(list(exp.state), exp.action)
 
-                if exp.last_state is None:
-                    irl_trajectories.append(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action),
-                                                       traj_prob=traj_prob))
-                    exp_trajectories.append(exp_traj)  # for ExperienceFirstLast objects
-                    exp_traj = []
-                    traj_prob = 1.
-                    probs_reg.clear()
-                    batch_episodes += 1
+                    if exp.last_state is None:
+                        irl_trajectories.append(Trajectory(terminal_state=EpisodeStep(exp.state, exp.action),
+                                                           traj_prob=traj_prob))
+                        exp_trajectories.append(exp_traj)  # for ExperienceFirstLast objects
+                        exp_traj = []
+                        traj_prob = 1.
+                        probs_reg.clear()
+                        batch_episodes += 1
 
-                new_rewards = exp_source.pop_total_rewards()
-                if new_rewards:
-                    reward = new_rewards[0]
-                    done_episodes += 1
-                    total_rewards.append(reward)
-                    mean_rewards = float(np.mean(total_rewards[-100:]))
-                    tracker.track('mean_total_reward', mean_rewards, step_idx)
-                    tracker.track('total_reward', reward, step_idx)
-                    print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
-                          f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
-                    with torch.set_grad_enabled(False):
-                        samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                                  num_samples=n_to_generate)
-                    predictions = expert_model(samples)[1]
-                    score = np.mean(predictions)
-                    percentage_in_threshold = np.sum((predictions >= 0.0) & (predictions <= 5.0)) / len(predictions)
-                    per_valid = len(predictions) / n_to_generate
-                    print(f'Mean value of predictions = {score}, '
-                          f'% of valid SMILES = {per_valid}, '
-                          f'% in drug-like region={percentage_in_threshold}')
-                    tb_writer.add_scalars('qsar_score', {'sampled': score,
-                                                         'baseline': baseline_score,
-                                                         'demo_data': demo_score}, step_idx)
-                    tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
-                                                           'per. in drug-like region': percentage_in_threshold},
-                                          step_idx)
-                    if score >= best_score:
-                        best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
-                                          copy.deepcopy(irl_algorithm.model.state_dict())]
-                        best_score = score
+                    new_rewards = exp_source.pop_total_rewards()
+                    if new_rewards:
+                        reward = new_rewards[0]
+                        done_episodes += 1
+                        total_rewards.append(reward)
+                        mean_rewards = float(np.mean(total_rewards[-100:]))
+                        tracker.track('mean_total_reward', mean_rewards, step_idx)
+                        tracker.track('total_reward', reward, step_idx)
+                        print(f'Time = {time_since(start)}, step = {step_idx}, reward = {reward:6.2f}, '
+                              f'mean_100 = {mean_rewards:6.2f}, episodes = {done_episodes}')
+                        with torch.set_grad_enabled(False):
+                            samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                                                      num_samples=n_to_generate)
+                        predictions = expert_model(samples)[1]
+                        score = np.mean(predictions)
+                        percentage_in_threshold = np.sum((predictions >= 0.0) & (predictions <= 5.0)) / len(predictions)
+                        per_valid = len(predictions) / n_to_generate
+                        print(f'Mean value of predictions = {score}, '
+                              f'% of valid SMILES = {per_valid}, '
+                              f'% in drug-like region={percentage_in_threshold}')
+                        tb_writer.add_scalars('qsar_score', {'sampled': score,
+                                                             'baseline': baseline_score,
+                                                             'demo_data': demo_score}, step_idx)
+                        tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
+                                                               'per. in drug-like region': percentage_in_threshold},
+                                              step_idx)
+                        eval_dict = {}
+                        eval_score = IReLeaSE.evaluate(eval_dict, samples)
+                        for k in eval_dict:
+                            tracker.track(k, eval_dict[k], step_idx)
+                        tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
+                        if eval_score >= best_score:
+                            best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
+                                              copy.deepcopy(irl_algorithm.model.state_dict())]
+                            best_score = eval_score
 
-                    if done_episodes == n_episodes:
-                        print('Training completed!')
-                        break
+                        if done_episodes == n_episodes:
+                            print('Training completed!')
+                            break
 
-                if batch_episodes < episodes_to_train:
-                    continue
+                    if batch_episodes < episodes_to_train:
+                        continue
 
-                # Train models
-                print('Fitting models...')
-                irl_loss = irl_algorithm.fit(irl_trajectories)
-                rl_loss = drl_algorithm.fit(exp_trajectories)
-                samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
-                                          num_samples=3)
-                print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
-                tracker.track('irl_loss', irl_loss, step_idx)
-                tracker.track('agent_loss', rl_loss, step_idx)
+                    # Train models
+                    print('Fitting models...')
+                    irl_stmt = ''
+                    if learn_irl:
+                        irl_loss = irl_algorithm.fit(irl_trajectories)
+                        tracker.track('irl_loss', irl_loss, step_idx)
+                        irl_stmt = f'IRL loss = {irl_loss}, '
+                    rl_loss = drl_algorithm.fit(exp_trajectories)
+                    samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
+                                              num_samples=3)
+                    print(f'{irl_stmt}RL loss = {rl_loss}, samples = {samples}')
+                    tracker.track('agent_loss', rl_loss, step_idx)
 
-                # Reset
-                batch_episodes = 0
-                irl_trajectories.clear()
-                exp_trajectories.clear()
+                    # Reset
+                    batch_episodes = 0
+                    irl_trajectories.clear()
+                    exp_trajectories.clear()
 
         drl_algorithm.model.load_state_dict(best_model_wts[0])
         irl_algorithm.model.load_state_dict(best_model_wts[1])
@@ -330,7 +343,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = 'DeNovo-IReLeaSE-reinf'
+    sim_label = 'DeNovo-IReLeaSE-REINFORCE_' + ('no_irl' if flags.use_true_reward else 'with_irl')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -367,16 +380,17 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=10000,
+                                     n_episodes=8000,
+                                     learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_reinforce_agent_'
-                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
+                                     f'_reinforce_agent_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}_reward_net_'
-                                     f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
+                                     f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
@@ -394,11 +408,14 @@ def default_hparams(args):
             'lr_decay_gamma': 0.1,
             'lr_decay_step_size': 1000,
             'xent_lambda': 0.0,
+            'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 256,
                               'unit_type': 'lstm',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
+                              'use_attention': True,
+                              'bidirectional': True,
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
@@ -424,6 +441,8 @@ def get_hparam_config(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='IRL for Structural Evolution of Small Molecules')
+    parser.add_argument('--exp_name', type=str,
+                        help='Name for the experiment. This would be added to saved model names')
     parser.add_argument('--demo', dest='demo_file', type=str,
                         help='File containing SMILES strings which are demonstrations of the required objective')
     parser.add_argument('--unbiased', dest='unbiased_file', type=str,
@@ -444,6 +463,10 @@ if __name__ == '__main__':
                         type=str,
                         default="bayopt_search",
                         help="Hyperparameter search algorithm to use. One of [bayopt_search, random_search]")
+    parser.add_argument('--use_true_reward',
+                        action='store_true',
+                        help='If true then no reward function would be learned but the true reward would be used.'
+                             'This requires that the explicit reward function is given.')
 
     args = parser.parse_args()
     flags = Flags()

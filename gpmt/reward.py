@@ -38,7 +38,7 @@ class RewardFunction:
     """
 
     def __init__(self, reward_net, mc_policy, actions, mc_max_sims=50, max_len=100, end_char='>', device='cpu',
-                 expert_func=None, use_mc=True, no_mc_fill_val=0.0):
+                 expert_func=None, use_mc=True, no_mc_fill_val=0.0, use_true_reward=False):
         self.model = reward_net
         self.actions = actions
         self.mc_policy = mc_policy
@@ -49,6 +49,7 @@ class RewardFunction:
         self.expert_func = expert_func
         self.mc_enabled = use_mc
         self.no_mc_fill_val = no_mc_fill_val
+        self.use_true_reward = use_true_reward
 
     @torch.no_grad()
     def __call__(self, x, use_mc):
@@ -72,16 +73,16 @@ class RewardFunction:
             else:
                 return self.no_mc_fill_val
         else:
-            # Get reward of completed string using the reward net
-            # state = x[1:-1]
-            state = ''.join(x.tolist())
-            smiles, valid_vec = canonical_smiles([state])
-            valid_vec = torch.tensor(valid_vec).view(-1, 1).float().to(self.device)
-            inp, _ = seq2tensor([state], tokens=self.actions)
-            inp = torch.from_numpy(inp).long().to(self.device)
-            reward = self.model([inp, valid_vec]).squeeze().item()
-            # reward = self.model(state).squeeze().item()
-            # reward = get_reward_logp(state[1:-1], self.expert_func)
+            # Get reward of completed string using the reward net or a given reward function.
+            if self.use_true_reward:
+                reward = get_reward_logp(x[1:-1], self.expert_func)
+            else:
+                state = ''.join(x.tolist())
+                smiles, valid_vec = canonical_smiles([state])
+                valid_vec = torch.tensor(valid_vec).view(-1, 1).float().to(self.device)
+                inp, _ = seq2tensor([state], tokens=self.actions)
+                inp = torch.from_numpy(inp).long().to(self.device)
+                reward = self.model([inp, valid_vec]).squeeze().item()
             return reward
 
     def expert_reward(self, x):
