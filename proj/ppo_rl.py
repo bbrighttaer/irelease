@@ -40,7 +40,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -211,7 +211,7 @@ class IReLeaSE(Trainer):
 
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
-              tb_writer=None, is_hsearch=False, n_to_generate=1000):
+              tb_writer=None, is_hsearch=False, n_to_generate=200):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -250,7 +250,7 @@ class IReLeaSE(Trainer):
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-        with contextlib.suppress(TypeError):  # Mostly arises when generator is not generating valid SMILES
+        with contextlib.suppress():  # (TypeError):  # Mostly arises when generator is not generating valid SMILES
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
                     exp_traj.append(exp)
@@ -280,7 +280,11 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         score = np.mean(predictions)
-                        percentage_in_threshold = np.sum((predictions >= 0.0) & (predictions <= 5.0)) / len(predictions)
+                        try:
+                            percentage_in_threshold = np.sum((predictions >= 0.0) &
+                                                             (predictions <= 5.0)) / len(predictions)
+                        except:
+                            percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
                         print(f'Mean value of predictions = {score}, '
                               f'% of valid SMILES = {per_valid}, '
@@ -296,11 +300,13 @@ class IReLeaSE(Trainer):
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        if eval_score >= best_score:
+                        hscore = (2.0 * eval_score * score) / (eval_score + score)
+                        tracker.track('H-score', hscore, step_idx)
+                        if hscore >= best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = eval_score
+                            best_score = hscore
 
                         if done_episodes == n_episodes:
                             print('Training completed!')
@@ -352,7 +358,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = 'DeNovo-IReLeaSE-ppo_with_irl'
+    sim_label = 'DeNovo-IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -415,7 +421,7 @@ def default_hparams(args):
             'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 1,
+            'episodes_to_train': 10,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
@@ -425,7 +431,7 @@ def default_hparams(args):
                               'unit_type': 'lstm',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
-                              'use_attention': True,
+                              'use_attention': args.use_attention,
                               'bidirectional': True,
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.0000,
@@ -480,6 +486,9 @@ if __name__ == '__main__':
                         type=str,
                         default="bayopt_search",
                         help="Hyperparameter search algorithm to use. One of [bayopt_search, random_search]")
+    parser.add_argument('--use_attention',
+                        action='store_true',
+                        help='Whether to use additive attention')
 
     args = parser.parse_args()
     flags = Flags()

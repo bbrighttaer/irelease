@@ -206,7 +206,7 @@ class IReLeaSE(Trainer):
 
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
-              tb_writer=None, is_hsearch=False, n_to_generate=1000, learn_irl=True):
+              tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -273,7 +273,11 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         score = np.mean(predictions)
-                        percentage_in_threshold = np.sum((predictions >= 0.0) & (predictions <= 5.0)) / len(predictions)
+                        try:
+                            percentage_in_threshold = np.sum((predictions >= 0.0) &
+                                                             (predictions <= 5.0)) / len(predictions)
+                        except:
+                            percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
                         print(f'Mean value of predictions = {score}, '
                               f'% of valid SMILES = {per_valid}, '
@@ -289,10 +293,12 @@ class IReLeaSE(Trainer):
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        if eval_score >= best_score:
+                        hscore = (2.0 * eval_score * score) / (eval_score + score)
+                        tracker.track('H-score', hscore, step_idx)
+                        if hscore >= best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = eval_score
+                            best_score = hscore
 
                         if done_episodes == n_episodes:
                             print('Training completed!')

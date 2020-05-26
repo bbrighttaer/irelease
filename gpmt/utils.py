@@ -9,8 +9,8 @@ import numpy as np
 import torch
 from rdkit import Chem
 from rdkit import DataStructs
-from rdkit.Chem import AllChem
 from rdkit import RDLogger
+from rdkit.Chem import AllChem
 from sklearn.model_selection import KFold, StratifiedKFold
 from tqdm import trange
 
@@ -515,7 +515,7 @@ class GradStats(object):
         return "Grads stats (w={}): L2={}, max={}, var={}".format(int(self._window), self.l2, self.max, self.var)
 
 
-def calculate_internal_diversity(smiles, radius=2):
+def calculate_internal_diversity(smiles, radius=2, pbar=False):
     """
     Calculates internal diversity of the given compounds.
     See http://arxiv.org/abs/1708.08227
@@ -529,12 +529,19 @@ def calculate_internal_diversity(smiles, radius=2):
     :return: float
         internal diversity value
     """
-    smiles, _ = canonical_smiles(smiles)
-    smiles = [s for s in smiles if len(s) > 0]
     diversity = np.zeros((len(smiles), len(smiles)))
-    compounds = [AllChem.GetMorganFingerprint(Chem.MolFromSmiles(s), radius) for s in smiles]
+    mols = []
+    for s in smiles:
+        mol = Chem.MolFromSmiles(s)
+        if mol is not None:
+            mols.append(mol)
+    compounds = [AllChem.GetMorganFingerprint(m, radius) for m in mols]
     hist = {}
-    for i in trange(len(smiles), desc='Calculating Internal Diversity...'):
+    if pbar:
+        gen = trange(len(compounds), desc='Calculating Internal Diversity...')
+    else:
+        gen = range(len(compounds))
+    for i in gen:
         c1 = compounds[i]
         for j, c2 in enumerate(compounds):
             if (c1, c2) in hist:
