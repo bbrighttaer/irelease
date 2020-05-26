@@ -32,7 +32,7 @@ from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, calculate_internal_diversity
+    time_since, generate_smiles, calculate_internal_diversity, ExpAverage
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -225,6 +225,8 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         best_score = 0.
+        exp_avg = ExpAverage(beta=0.9)
+        score_threshold = 3.7
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -302,11 +304,13 @@ class IReLeaSE(Trainer):
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
                         hscore = (2.0 * eval_score * score) / (eval_score + score)
                         tracker.track('H-score', hscore, step_idx)
-                        if hscore >= best_score:
+                        exp_avg.update(score)
+                        if exp_avg.value >= score_threshold:  # hscore >= best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = hscore
+                            best_score = exp_avg.value
+                            break
 
                         if done_episodes == n_episodes:
                             print('Training completed!')
