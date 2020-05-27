@@ -225,8 +225,8 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         best_score = 0.
-        exp_avg = ExpAverage(beta=0.9)
-        score_threshold = 3.7
+        exp_avg = ExpAverage(beta=0.6)
+        score_threshold = 3.6
 
         # load pretrained model
         if agent_net_path and agent_net_name:

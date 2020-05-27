@@ -219,7 +219,7 @@ class IReLeaSE(Trainer):
         demo_data_gen = init_args['demo_data_gen']
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
-        best_score = 0.
+        best_score = -10
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -295,10 +295,10 @@ class IReLeaSE(Trainer):
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
                         hscore = (2.0 * eval_score * score) / (eval_score + score)
                         tracker.track('H-score', hscore, step_idx)
-                        if hscore >= best_score:
+                        if mean_rewards > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = hscore
+                            best_score = mean_rewards
 
                         if done_episodes == n_episodes:
                             print('Training completed!')
