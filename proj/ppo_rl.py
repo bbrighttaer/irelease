@@ -344,7 +344,7 @@ class IReLeaSE(Trainer):
                           drl_algorithm.critic,
                           irl_algorithm.model],
                 'score': round(best_score, 3),
-                'epoch': step_idx}
+                'epoch': done_episodes}
 
     @staticmethod
     def evaluate_model(*args, **kwargs):

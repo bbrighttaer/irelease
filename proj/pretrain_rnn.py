@@ -65,8 +65,9 @@ class GpmtPretrain(Trainer):
                                        stack_width=hparams['stack_width'],
                                        stack_depth=hparams['stack_depth'],
                                        k_mask_func=encoder.k_padding_mask))
-            rnn_layers.append(StackedRNNDropout(hparams['dropout']))
-            rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
+            if i + 1 < hparams['num_layers']:
+                rnn_layers.append(StackedRNNDropout(hparams['dropout']))
+                rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
 
         model = nn.Sequential(encoder,
                               *rnn_layers,
@@ -246,7 +247,7 @@ class GpmtPretrain(Trainer):
         samples = []
         step = 100
         count = 0
-        for _ in range(int(num_smiles/step)):
+        for _ in range(int(num_smiles / step)):
             samples.extend(generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
                                            num_samples=step, is_train=False, verbose=True))
             count += step
@@ -359,7 +360,7 @@ def main(flags):
                                                                       gen_data=trainer.data_provider(k, flags)['train'])
             if flags.eval:
                 model.load_state_dict(trainer.load_model(flags.model_dir, flags.eval_model_name))
-                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=3000)
+                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=300)
             else:
                 results = trainer.train(model=model,
                                         optimizer=optimizer,
