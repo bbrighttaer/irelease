@@ -27,7 +27,7 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN
-from gpmt.predictor import RNNPredictor, SVCPredictor, get_drd2_activity_reward
+from gpmt.predictor import SVCPredictor, get_drd2_activity_reward
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
@@ -358,7 +358,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = 'DeNovo-IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
+    sim_label = flags.exp_name + '_IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -429,7 +429,7 @@ def default_hparams(args):
             'svc_path': args.svc,
             'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 2,
-                              'd_model': 256,
+                              'd_model': 512,
                               'unit_type': 'lstm',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,

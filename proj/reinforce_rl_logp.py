@@ -350,7 +350,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = 'DeNovo-IReLeaSE-REINFORCE_' + ('no_irl' if flags.use_true_reward else 'with_irl')
+    sim_label = flags.exp_name + '_IReLeaSE-REINFORCE_' + ('no_irl' if flags.use_true_reward else 'with_irl')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list

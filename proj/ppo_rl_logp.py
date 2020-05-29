@@ -362,7 +362,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = 'DeNovo-IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
+    sim_label = flags.exp_name + '_IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
