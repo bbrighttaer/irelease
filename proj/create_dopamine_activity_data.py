@@ -13,7 +13,7 @@ from tqdm import trange
 
 from gpmt.data import GeneratorData
 from gpmt.utils import get_default_tokens
-from gpmt.drd2 import Activity_model
+from gpmt.drd2 import DRD2Model
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Creates activity dataset for dopamine receptor type 2 (DRD2)')
@@ -39,7 +39,7 @@ if __name__ == '__main__':
                              use_cuda=False)
 
     # Load classifier
-    clf = Activity_model(args.svc)
+    clf = DRD2Model(args.svc)
 
     # Screen SMILES in data file and write active compounds to file.
     os.makedirs(args.save_dir, exist_ok=True)

@@ -2,7 +2,7 @@
 # Project: GPMT
 # Date: 4/8/2020
 # Time: 8:02 PM
-# File: ppo_rl.py
+# File: ppo_rl_logp.py
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
@@ -27,7 +27,7 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN
-from gpmt.predictor import RNNPredictor
+from gpmt.predictor import RNNPredictor, SVCPredictor, get_drd2_activity_reward
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
@@ -139,11 +139,13 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
-        expert_model = RNNPredictor(hparams['expert_model_params'], device)
+        expert_model = SVCPredictor(hparams['svc_path'])
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
                                          expert_func=expert_model,
+                                         use_true_reward=hparams['use_true_reward'],
+                                         true_reward_func=get_drd2_activity_reward,
                                          no_mc_fill_val=hparams['no_mc_fill_val'])
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         demo_data_gen.set_batch_size(hparams['reward_params']['demo_batch_size'])
@@ -226,7 +228,7 @@ class IReLeaSE(Trainer):
         best_model_wts = None
         best_score = 0.
         exp_avg = ExpAverage(beta=0.6)
-        score_threshold = 3.6
+        score_threshold = 0.8
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -281,21 +283,15 @@ class IReLeaSE(Trainer):
                             samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
+                        per_active = float(len([v for v in predictions if v >= 0.8])) / len(predictions)
                         score = np.mean(predictions)
-                        try:
-                            percentage_in_threshold = np.sum((predictions >= 0.0) &
-                                                             (predictions <= 5.0)) / len(predictions)
-                        except:
-                            percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
-                        print(f'Mean value of predictions = {score}, '
-                              f'% of valid SMILES = {per_valid}, '
-                              f'% in drug-like region={percentage_in_threshold}')
+                        print(f'Mean value of predictions = {score}, % of valid SMILES = {per_valid}')
                         tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
                         tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
-                                                               'per. in drug-like region': percentage_in_threshold},
+                                                               'per. of actives': per_active},
                                               step_idx)
                         eval_dict = {}
                         eval_score = IReLeaSE.evaluate(eval_dict, samples)
@@ -430,6 +426,8 @@ def default_hparams(args):
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 5,
+            'svc_path': args.svc,
+            'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 256,
                               'unit_type': 'lstm',
@@ -493,6 +491,11 @@ if __name__ == '__main__':
     parser.add_argument('--use_attention',
                         action='store_true',
                         help='Whether to use additive attention')
+    parser.add_argument('--use_true_reward',
+                        action='store_true',
+                        help='If true then no reward function would be learned but the true reward would be used.'
+                             'This requires that the explicit reward function is given.')
+    parser.add_argument('--svc', type=str, help='Path to the DRD2 SVC model')
 
     args = parser.parse_args()
     flags = Flags()

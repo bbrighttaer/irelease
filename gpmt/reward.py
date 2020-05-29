@@ -6,11 +6,9 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import numpy as np
 import torch
 
 from gpmt.monte_carlo import MoleculeMonteCarloTreeSearchNode, MonteCarloTreeSearch
-from gpmt.predictor import get_reward_logp
 from gpmt.utils import canonical_smiles, seq2tensor
 
 
@@ -38,7 +36,11 @@ class RewardFunction:
     """
 
     def __init__(self, reward_net, mc_policy, actions, mc_max_sims=50, max_len=100, end_char='>', device='cpu',
-                 expert_func=None, use_mc=True, no_mc_fill_val=0.0, use_true_reward=False):
+                 expert_func=None, use_mc=True, no_mc_fill_val=0.0, use_true_reward=False, true_reward_func=None):
+        if use_true_reward:
+            assert (true_reward_func is not None), 'If true reward should be used then the ' \
+                                                   'true reward function must be supplied'
+            assert(callable(true_reward_func))
         self.model = reward_net
         self.actions = actions
         self.mc_policy = mc_policy
@@ -47,6 +49,7 @@ class RewardFunction:
         self.end_char = end_char
         self.device = device
         self.expert_func = expert_func
+        self.true_reward_func = true_reward_func
         self.mc_enabled = use_mc
         self.no_mc_fill_val = no_mc_fill_val
         self.use_true_reward = use_true_reward
@@ -75,7 +78,7 @@ class RewardFunction:
         else:
             # Get reward of completed string using the reward net or a given reward function.
             if self.use_true_reward:
-                reward = get_reward_logp(x[1:-1], self.expert_func)
+                reward = self.true_reward_func(x[1:-1], self.expert_func)
             else:
                 state = ''.join(x.tolist())
                 smiles, valid_vec = canonical_smiles([state])

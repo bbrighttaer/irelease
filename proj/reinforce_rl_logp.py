@@ -2,7 +2,7 @@
 # Project: GPMT
 # Date: 4/8/2020
 # Time: 8:02 PM
-# File: reinforce_rl.py
+# File: reinforce_rl_logp.py
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
@@ -26,7 +26,7 @@ from tqdm import tqdm
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN
-from gpmt.predictor import RNNPredictor
+from gpmt.predictor import RNNPredictor, get_logp_reward
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, REINFORCE, Trajectory, EpisodeStep
@@ -139,6 +139,7 @@ class IReLeaSE(Trainer):
                                          mc_max_sims=hparams['monte_carlo_N'],
                                          expert_func=expert_model,
                                          no_mc_fill_val=hparams['no_mc_fill_val'],
+                                         true_reward_func=get_logp_reward,
                                          use_true_reward=hparams['use_true_reward'])
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         demo_data_gen.set_batch_size(hparams['reward_params']['demo_batch_size'])
