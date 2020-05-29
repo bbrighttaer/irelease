@@ -2,7 +2,7 @@
 # Project: GPMT
 # Date: 5/21/2020
 # Time: 9:56 AM
-# File: expert.py
+# File: expert_rnn.py
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
@@ -45,14 +45,14 @@ else:
 
 class SmilesDataset(Dataset):
     def __init__(self, x, y):
-        self.x = x
+        self.X = x
         self.y = y
 
     def __len__(self):
-        return len(self.x)
+        return len(self.X)
 
     def __getitem__(self, item):
-        return self.x[item], self.y[item]
+        return self.X[item], self.y[item]
 
 
 class ExpertTrainer(Trainer):
@@ -181,8 +181,8 @@ class ExpertTrainer(Trainer):
 
     @staticmethod
     def save_model(model, path, name):
-        os.makedirs(os.path.join(path, 'expert'), exist_ok=True)
-        file = os.path.join(path, 'expert', name + ".mod")
+        os.makedirs(os.path.join(path, 'expert_rnn'), exist_ok=True)
+        file = os.path.join(path, 'expert_rnn', name + ".mod")
         torch.save(model.state_dict(), file)
 
     @staticmethod
@@ -199,7 +199,7 @@ class DummyException(RuntimeError):
 
 def main(flags):
     mode = 'eval' if flags.eval else 'train'
-    sim_label = f'expert_model_{mode}'
+    sim_label = f'expert_rnn_model_{mode}'
 
     print('--------------------------------------------------------------------------------')
     print(f'{device}\n{sim_label}\tData file: {flags.data_file}')

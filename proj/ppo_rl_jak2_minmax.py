@@ -27,7 +27,7 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN
-from gpmt.predictor import RNNPredictor
+from gpmt.predictor import RNNPredictor, SVRPredictor, get_jak2_max_reward, get_jak2_min_reward
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
@@ -139,10 +139,13 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
-        expert_model = RNNPredictor(hparams['expert_model_params'], device)
+        expert_model = SVRPredictor(hparams['expert_svr_dir'])
+        true_reward_func = get_jak2_max_reward if hparams['bias_mode'] == 'max' else get_jak2_min_reward
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
+                                         use_true_reward=hparams['use_expert_reward'],
+                                         true_reward_func=true_reward_func,
                                          expert_func=expert_model,
                                          no_mc_fill_val=hparams['no_mc_fill_val'])
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
@@ -226,7 +229,7 @@ class IReLeaSE(Trainer):
         best_model_wts = None
         best_score = 0.
         exp_avg = ExpAverage(beta=0.6)
-        score_threshold = 3.6
+        score_threshold = 6.8
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -283,14 +286,11 @@ class IReLeaSE(Trainer):
                         predictions = expert_model(samples)[1]
                         score = np.mean(predictions)
                         try:
-                            percentage_in_threshold = np.sum((predictions >= 0.0) &
-                                                             (predictions <= 5.0)) / len(predictions)
+                            percentage_in_threshold = np.sum((predictions >= score_threshold)) / len(predictions)
                         except:
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
-                        print(f'Mean value of predictions = {score}, '
-                              f'% of valid SMILES = {per_valid}, '
-                              f'% in drug-like region={percentage_in_threshold}')
+                        print(f'Mean value of predictions = {score}, % of valid SMILES = {per_valid}')
                         tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
@@ -362,7 +362,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = 'DeNovo-IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
+    sim_label = flags.exp_name + '_IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -430,6 +430,9 @@ def default_hparams(args):
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 5,
+            'bias_mode': args.bias_mode,
+            'expert_svr_dir': args.expert_dir,
+            'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 256,
                               'unit_type': 'lstm',
@@ -493,6 +496,14 @@ if __name__ == '__main__':
     parser.add_argument('--use_attention',
                         action='store_true',
                         help='Whether to use additive attention')
+    parser.add_argument('--expert_dir', type=str, default='./model_dir/expert_svr',
+                        help='The directory containing SVR model(s) to predict JAK2 pIC50')
+    parser.add_argument('--bias_mode', type=str, choices=['min', 'max'], default='max',
+                        help='The generator biasing objective')
+    parser.add_argument('--use_true_reward',
+                        action='store_true',
+                        help='If true then no reward function would be learned but the true reward would be used.'
+                             'This requires that the explicit reward function is given.')
 
     args = parser.parse_args()
     flags = Flags()
