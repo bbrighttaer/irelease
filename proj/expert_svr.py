@@ -215,8 +215,8 @@ def start_fold(sim_data_node, data_dict, transformer, flags, hyper_params, train
 
 def default_params(flag):
     return {'kernel': 'rbf',
-            'C': 1.0,
-            'epsilon': 0.1}
+            'C': 3.097100486392577,
+            'epsilon': 0.00707623455666521}
 
 
 def hparams_config():

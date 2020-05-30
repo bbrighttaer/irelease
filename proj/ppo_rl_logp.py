@@ -453,7 +453,7 @@ def default_hparams(args):
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001},
-            'expert_model_params': {'model_dir': './model_dir/expert',
+            'expert_model_params': {'model_dir': './model_dir/expert_rnn',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,
                                     'dropout': 0.8,
