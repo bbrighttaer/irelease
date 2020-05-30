@@ -256,7 +256,7 @@ class IReLeaSE(Trainer):
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-        with contextlib.suppress():  # (TypeError):  # Mostly arises when generator is not generating valid SMILES
+        with contextlib.suppress(Exception):  # Mostly arises when generator is not generating valid SMILES
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
                     exp_traj.append(exp)
@@ -303,6 +303,8 @@ class IReLeaSE(Trainer):
                         hscore = (2.0 * eval_score * score) / (eval_score + score)
                         tracker.track('H-score', hscore, step_idx)
                         exp_avg.update(score)
+                        if is_hsearch:
+                            best_score = exp_avg.value
                         if exp_avg.value >= score_threshold:  # hscore >= best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
@@ -396,6 +398,7 @@ def main(flags):
             extra_train_args = {'agent_net_path': flags.model_dir,
                                 'agent_net_name': flags.pretrained_model,
                                 'seed': seed,
+                                'is_hsearch': True,
                                 'tb_writer': summary_writer_creator}
             hparams_conf = get_hparam_config(flags)
             if hparam_search is None:
