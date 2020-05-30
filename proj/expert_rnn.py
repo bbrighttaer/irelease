@@ -26,7 +26,7 @@ from tqdm import tqdm
 
 from gpmt.model import RNNPredictorModel
 from gpmt.dataloader import load_smiles_data
-from gpmt.utils import Flags, get_default_tokens, parse_optimizer, time_since
+from gpmt.utils import Flags, get_default_tokens, parse_optimizer, time_since, DummyException
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -188,13 +188,6 @@ class ExpertTrainer(Trainer):
     @staticmethod
     def load_model(path, name):
         return torch.load(os.path.join(path, name), map_location=torch.device(device))
-
-
-class DummyException(RuntimeError):
-    """ Method or function hasn't been implemented yet. """
-
-    def __init__(self, *args, **kwargs):  # real signature unknown
-        pass
 
 
 def main(flags):

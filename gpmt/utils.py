@@ -759,3 +759,10 @@ class Count(object):
     def IncAndGet(self):
         self.inc()
         return self.i
+
+
+class DummyException(RuntimeError):
+    """ Method or function hasn't been implemented yet. """
+
+    def __init__(self, *args, **kwargs):  # real signature unknown
+        pass

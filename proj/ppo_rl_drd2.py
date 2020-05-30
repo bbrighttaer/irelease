@@ -34,7 +34,7 @@ from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, calculate_internal_diversity, ExpAverage
+    time_since, generate_smiles, calculate_internal_diversity, ExpAverage, DummyException
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -256,7 +256,7 @@ class IReLeaSE(Trainer):
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-        with contextlib.suppress(Exception):  # Mostly arises when generator is not generating valid SMILES
+        with contextlib.suppress(Exception if is_hsearch else DummyException):
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
                     exp_traj.append(exp)

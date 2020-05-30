@@ -554,6 +554,9 @@ class RewardNetRNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, bidirectional=True, dropout=0., unit_type='lstm',
                  use_attention=False):
         super(RewardNetRNN, self).__init__()
+        input_size = int(input_size)
+        hidden_size = int(hidden_size)
+        num_layers = int(num_layers)
         self.num_dir = 1
         self.use_attention = use_attention
         if num_layers == 1:
