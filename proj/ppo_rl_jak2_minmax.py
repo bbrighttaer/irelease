@@ -144,7 +144,7 @@ class IReLeaSE(Trainer):
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
-                                         use_true_reward=hparams['use_expert_reward'],
+                                         use_true_reward=hparams['use_true_reward'],
                                          true_reward_func=true_reward_func,
                                          expert_func=expert_model,
                                          no_mc_fill_val=hparams['no_mc_fill_val'])

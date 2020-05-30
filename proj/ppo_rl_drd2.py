@@ -19,7 +19,9 @@ import torch
 import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
-from soek import Trainer, DataNode
+from soek import Trainer, DataNode, RandomSearch, BayesianOptSearch, ConstantParam, RealParam, DiscreteParam, \
+    CategoricalParam, DictParam, LogRealParam
+from soek.bopt import GPMinArgs
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -136,7 +138,7 @@ class IReLeaSE(Trainer):
                                                 num_layers=hparams['reward_params']['num_layers'],
                                                 bidirectional=hparams['reward_params']['bidirectional'],
                                                 use_attention=hparams['reward_params']['use_attention'],
-                                                dropout=hparams['dropout'],
+                                                dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
         expert_model = SVCPredictor(hparams['svc_path'])
@@ -387,7 +389,40 @@ def main(flags):
         irelease = IReLeaSE()
         k = 1
         if flags.hparam_search:
-            pass
+            print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
+            # arguments to callables
+            extra_init_args = {}
+            extra_data_args = {'flags': flags}
+            extra_train_args = {'agent_net_path': flags.model_dir,
+                                'agent_net_name': flags.pretrained_model,
+                                'seed': seed,
+                                'tb_writer': summary_writer_creator}
+            hparams_conf = get_hparam_config(flags)
+            if hparam_search is None:
+                search_alg = {'random_search': RandomSearch,
+                              'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
+                                                                      BayesianOptSearch)
+                search_args = GPMinArgs(n_calls=10, random_state=seed)
+                hparam_search = search_alg(hparam_config=hparams_conf,
+                                           num_folds=1,
+                                           initializer=irelease.initialize,
+                                           data_provider=irelease.data_provider,
+                                           train_fn=irelease.train,
+                                           save_model_fn=irelease.save_model,
+                                           alg_args=search_args,
+                                           init_args=extra_init_args,
+                                           data_args=extra_data_args,
+                                           train_args=extra_train_args,
+                                           data_node=data_node,
+                                           split_label='ppo-rl',
+                                           sim_label=sim_label,
+                                           dataset_label=None,
+                                           results_file=f'{flags.hparam_search_alg}_{sim_label}_{date_label}')
+            start = time.time()
+            stats = hparam_search.fit()
+            print(f'Duration = {time_since(start)}')
+            print(stats)
+            print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
             hyper_params = default_hparams(flags)
             data_gens = irelease.data_provider(k, flags)
@@ -435,6 +470,7 @@ def default_hparams(args):
                               'irl_alg_num_iter': 5,
                               'use_attention': args.use_attention,
                               'bidirectional': True,
+                              'dropout': 0.2,
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
@@ -461,7 +497,51 @@ def default_hparams(args):
 
 
 def get_hparam_config(args):
-    pass
+    return {'d_model': ConstantParam(1500),
+            'dropout': ConstantParam(0.),
+            'monte_carlo_N': DiscreteParam(min=2, max=10),
+            'use_monte_carlo_sim': ConstantParam(True),
+            'no_mc_fill_val': ConstantParam(0.0),
+            'gamma': ConstantParam(0.97),
+            'episodes_to_train': DiscreteParam(min=5, max=20),
+            'gae_lambda': RealParam(0.9, max=0.999),
+            'ppo_eps': RealParam(0.1, 0.4),
+            'ppo_batch': ConstantParam(1),
+            'ppo_epochs': DiscreteParam(2, max=10),
+            'svc_path': ConstantParam(args.svc),
+            'use_true_reward': ConstantParam(args.use_true_reward),
+            'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
+                                        'd_model': DiscreteParam(min=128, max=1024),
+                                        'unit_type': CategoricalParam(choices=['lstm', 'gru']),
+                                        'demo_batch_size': CategoricalParam([64, 128, 256]),
+                                        'irl_alg_num_iter': DiscreteParam(2, max=10),
+                                        'use_attention': ConstantParam(False),
+                                        'bidirectional': ConstantParam(True),
+                                        'dropout': RealParam(),
+                                        'optimizer': CategoricalParam(
+                                            choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
+                                        'optimizer__global__weight_decay': LogRealParam(),
+                                        'optimizer__global__lr': LogRealParam()}),
+            'agent_params': DictParam({'unit_type': ConstantParam('gru'),
+                                       'num_layers': ConstantParam(1),
+                                       'stack_width': ConstantParam(1500),
+                                       'stack_depth': ConstantParam(200),
+                                       'optimizer': ConstantParam('adadelta'),
+                                       'optimizer__global__weight_decay': LogRealParam(),
+                                       'optimizer__global__lr': ConstantParam(0.001)}),
+            'critic_params': DictParam({'num_layers': ConstantParam(2),
+                                        'd_model': ConstantParam(256),
+                                        'unit_type': ConstantParam('lstm'),
+                                        'optimizer': ConstantParam('adadelta'),
+                                        'optimizer__global__weight_decay': LogRealParam(),
+                                        'optimizer__global__lr': LogRealParam()}),
+            'expert_model_params': DictParam({'model_dir': ConstantParam('./model_dir/expert'),
+                                              'd_model': ConstantParam(128),
+                                              'rnn_num_layers': ConstantParam(2),
+                                              'dropout': ConstantParam(0.8),
+                                              'is_bidirectional': ConstantParam(False),
+                                              'unit_type': ConstantParam('lstm')})
+            }
 
 
 if __name__ == '__main__':
