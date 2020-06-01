@@ -20,13 +20,13 @@ lg = RDLogger.logger()
 lg.setLevel(RDLogger.CRITICAL)
 
 
-def get_fp(smiles):
+def get_fp(smiles, sanitize=True):
     fp = []
     processed_indices = []
     invalid_indices = []
     for i in range(len(smiles)):
         mol = smiles[i]
-        tmp = np.array(mol2image(mol, n=2048))
+        tmp = np.array(mol2image(mol, n=2048, sanitize=sanitize))
         if np.isnan(tmp[0]):
             invalid_indices.append(i)
         else:
@@ -76,9 +76,9 @@ def normalize_desc(desc_array, desc_mean=None):
     return desc_array, desc_mean
 
 
-def mol2image(x, n=2048):
+def mol2image(x, n=2048, sanitize=False):
     try:
-        m = Chem.MolFromSmiles(x)
+        m = Chem.MolFromSmiles(x, sanitize=sanitize)
         fp = Chem.RDKFingerprint(m, maxPath=4, fpSize=n)
         res = np.zeros(len(fp))
         DataStructs.ConvertToNumpyArray(fp, res)

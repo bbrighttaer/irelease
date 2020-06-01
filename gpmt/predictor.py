@@ -128,7 +128,7 @@ class SVRPredictor(Predictor):
         if len(canonical_smiles) == 0:
             return canonical_smiles, [], invalid_smiles
         prediction = []
-        x, _, _ = get_features(canonical_smiles)
+        x, _, _ = get_features(canonical_smiles, sanitize=False)
         for i in range(len(self.models)):
             y_pred = self.models[i].predict(x)
             if self.transformer is not None:

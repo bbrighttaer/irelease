@@ -304,6 +304,9 @@ class IReLeaSE(Trainer):
                         tracker.track('H-score', hscore, step_idx)
                         exp_avg.update(score)
                         if is_hsearch:
+                            best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
+                                              copy.deepcopy(drl_algorithm.critic.state_dict()),
+                                              copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
                         if exp_avg.value >= score_threshold:  # hscore >= best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
@@ -398,6 +401,7 @@ def main(flags):
             extra_train_args = {'agent_net_path': flags.model_dir,
                                 'agent_net_name': flags.pretrained_model,
                                 'seed': seed,
+                                'n_episodes': 500,
                                 'is_hsearch': True,
                                 'tb_writer': summary_writer_creator}
             hparams_conf = get_hparam_config(flags)
@@ -405,7 +409,7 @@ def main(flags):
                 search_alg = {'random_search': RandomSearch,
                               'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
                                                                       BayesianOptSearch)
-                search_args = GPMinArgs(n_calls=10, random_state=seed)
+                search_args = GPMinArgs(n_calls=20, random_state=seed)
                 hparam_search = search_alg(hparam_config=hparams_conf,
                                            num_folds=1,
                                            initializer=irelease.initialize,
@@ -508,7 +512,7 @@ def get_hparam_config(args):
             'gamma': ConstantParam(0.97),
             'episodes_to_train': DiscreteParam(min=5, max=20),
             'gae_lambda': RealParam(0.9, max=0.999),
-            'ppo_eps': RealParam(0.1, 0.4),
+            'ppo_eps': ConstantParam(0.2),
             'ppo_batch': ConstantParam(1),
             'ppo_epochs': DiscreteParam(2, max=10),
             'svc_path': ConstantParam(args.svc),

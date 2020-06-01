@@ -27,7 +27,7 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN
-from gpmt.predictor import RNNPredictor, SVRPredictor, get_jak2_max_reward, get_jak2_min_reward
+from gpmt.predictor import SVRPredictor, get_jak2_max_reward, get_jak2_min_reward
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
@@ -40,7 +40,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -229,7 +229,7 @@ class IReLeaSE(Trainer):
         best_model_wts = None
         best_score = 0.
         exp_avg = ExpAverage(beta=0.6)
-        score_threshold = 6.8
+        score_threshold = 6.68
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -362,7 +362,8 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + '_IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
+    sim_label = flags.exp_name + flags.bias_mode + '_IReLeaSE-ppo_with_irl_' + (
+        'attn' if flags.use_attention else 'no_attn')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -403,15 +404,18 @@ def main(flags):
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
+                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                     f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_agent_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
+                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                     f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_critic_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][2],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
+                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                     f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
@@ -456,7 +460,7 @@ def default_hparams(args):
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001},
-            'expert_model_params': {'model_dir': './model_dir/expert',
+            'expert_model_params': {'model_dir': './model_dir/expert_svr',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,
                                     'dropout': 0.8,
