@@ -40,7 +40,7 @@ class RewardFunction:
         if use_true_reward:
             assert (true_reward_func is not None), 'If true reward should be used then the ' \
                                                    'true reward function must be supplied'
-            assert(callable(true_reward_func))
+            assert (callable(true_reward_func))
         self.model = reward_net
         self.actions = actions
         self.mc_policy = mc_policy
@@ -77,10 +77,11 @@ class RewardFunction:
                 return self.no_mc_fill_val
         else:
             # Get reward of completed string using the reward net or a given reward function.
+            state = ''.join(x.tolist())
             if self.use_true_reward:
-                reward = self.true_reward_func(x[1:-1], self.expert_func)
+                state = state[1:-1].replace('\n', '-')
+                reward = self.true_reward_func(state, self.expert_func)
             else:
-                state = ''.join(x.tolist())
                 smiles, valid_vec = canonical_smiles([state])
                 valid_vec = torch.tensor(valid_vec).view(-1, 1).float().to(self.device)
                 inp, _ = seq2tensor([state], tokens=self.actions)
