@@ -79,7 +79,7 @@ class ExpertTrainer(Trainer):
         model = init_dict['model']
         data = init_dict['data']
         metrics = init_dict['metrics']
-
+        print('Fitting...')
         for phase in ['train', 'val' if is_hsearch else 'test']:
             X = data[phase].X
             y_true = data[phase].y.reshape(-1, )
@@ -102,8 +102,8 @@ class ExpertTrainer(Trainer):
 
     @staticmethod
     def save_model(model, path, name):
-        os.makedirs(os.path.join(path, 'expert_svr'), exist_ok=True)
-        file = os.path.join(path, 'expert_svr', name + ".joblib")
+        os.makedirs(os.path.join(path, 'drd2_expert_svr'), exist_ok=True)
+        file = os.path.join(path, 'drd2_expert_svr', name + ".joblib")
         with open(file, 'wb') as f:
             joblib.dump(model, f)
 
