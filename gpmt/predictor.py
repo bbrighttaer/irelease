@@ -26,7 +26,7 @@ class Predictor:
 
 
 class RNNPredictor(Predictor):
-    def __init__(self, hparams, device):
+    def __init__(self, hparams, device, is_binary=False):
         expert_model_dir = hparams['model_dir']
         assert (os.path.isdir(expert_model_dir)), 'Expert model(s) should be in a dedicated folder'
         self.models = []
@@ -34,6 +34,7 @@ class RNNPredictor(Predictor):
         self.device = device
         model_paths = os.listdir(expert_model_dir)
         self.transformer = None
+        self.is_binary = is_binary
         for model_file in model_paths:
             if 'transformer' in model_file:
                 with open(os.path.join(expert_model_dir, model_file), 'rb') as f:
@@ -83,11 +84,12 @@ class RNNPredictor(Predictor):
         prediction = []
         for i in range(len(self.models)):
             y_pred = self.models[i](canonical_smiles).detach().cpu().numpy()
-            if self.transformer is not None:
+            if not self.is_binary and self.transformer is not None:
                 y_pred = self.transformer.inverse_transform(y_pred)
             prediction.append(y_pred)
         prediction = np.array(prediction)
-        prediction = np.min(prediction, axis=0)
+        pool = np.mean if self.is_binary else np.min
+        prediction = pool(prediction, axis=0)
         return canonical_smiles, prediction, invalid_smiles
 
 

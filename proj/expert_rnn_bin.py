@@ -63,9 +63,10 @@ class ExpertTrainer(Trainer):
                                   batch_size=hparams['batch'],
                                   shuffle=True,
                                   collate_fn=lambda x: x)
-        val_loader = DataLoader(SmilesDataset(val_data[0], val_data[1]),
-                                batch_size=hparams['batch'],
-                                collate_fn=lambda x: x)
+        if val_data:
+            val_loader = DataLoader(SmilesDataset(val_data[0], val_data[1]),
+                                    batch_size=hparams['batch'],
+                                    collate_fn=lambda x: x)
         test_loader = DataLoader(SmilesDataset(test_data[0], test_data[1]),
                                  batch_size=hparams['batch'],
                                  collate_fn=lambda x: x)
@@ -82,7 +83,7 @@ class ExpertTrainer(Trainer):
         metrics = [accuracy_score, f1_score]
 
         return {'data_loaders': {'train': train_loader,
-                                 'val': val_loader,
+                                 'val': val_loader if val_data else None,
                                  'test': test_loader},
                 'model': model,
                 'optimizer': optimizer,
@@ -208,7 +209,7 @@ def main(flags):
 
     # Load the data
     data_dict, transformer = load_smiles_data(flags.data_file, flags.cv, normalize_y=False, k=flags.folds,
-                                              index_col=False, shuffle=5, create_val=True, train_size=.7)
+                                              index_col=False, shuffle=5, create_val=False, train_size=.8)
 
     for seed in seeds:
         data_node = DataNode(label="seed_%d" % seed)
@@ -278,7 +279,9 @@ def main(flags):
 
 def start_fold(sim_data_node, data_dict, transformer, flags, hyper_params, trainer, k=None, sw_creator=None):
     data = trainer.data_provider(k, data_dict, flags.cv)
-    init_args = trainer.initialize(hparams=hyper_params, train_data=data["train"], val_data=data["val"],
+
+    init_args = trainer.initialize(hparams=hyper_params, train_data=data["train"],
+                                   val_data=data["val"] if 'val' in data else None,
                                    test_data=data["test"])
     if flags.eval:
         pass

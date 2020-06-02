@@ -29,7 +29,7 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN
-from gpmt.predictor import SVCPredictor, get_drd2_activity_reward
+from gpmt.predictor import SVCPredictor, get_drd2_activity_reward, RNNPredictor
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
@@ -141,7 +141,7 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
-        expert_model = SVCPredictor(hparams['svc_path'])
+        expert_model = RNNPredictor(hparams, device, True)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
@@ -494,12 +494,13 @@ def default_hparams(args):
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001},
-            'expert_model_params': {'model_dir': './model_dir/expert',
+            'expert_model_params': {'batch': 128,
                                     'd_model': 128,
                                     'rnn_num_layers': 2,
-                                    'dropout': 0.8,
-                                    'is_bidirectional': False,
-                                    'unit_type': 'lstm'}
+                                    'dropout': 0.0,
+                                    'is_bidirectional': True,
+                                    'unit_type': 'lstm',
+                                    'model_dir': './model_dir/expert_rnn_bin'}
             }
 
 
