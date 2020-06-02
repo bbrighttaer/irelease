@@ -479,7 +479,7 @@ def default_hparams(args):
                               'bidirectional': True,
                               'dropout': 0.2,
                               'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.0000,
+                              'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,

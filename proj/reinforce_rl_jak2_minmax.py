@@ -39,7 +39,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 3
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -418,7 +418,9 @@ def default_hparams(args):
             'lr_decay_gamma': 0.1,
             'lr_decay_step_size': 1000,
             'xent_lambda': 0.0,
+            'bias_mode': args.bias_mode,
             'use_true_reward': args.use_true_reward,
+            'expert_svr_dir': args.expert_dir,
             'reward_params': {'num_layers': 2,
                               'd_model': 256,
                               'unit_type': 'lstm',
@@ -436,7 +438,7 @@ def default_hparams(args):
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.0000,
                              'optimizer__global__lr': 0.001},
-            'expert_model_params': {'model_dir': './model_dir/expert',
+            'expert_model_params': {'model_dir': './model_dir/expert_svr',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,
                                     'dropout': 0.8,
@@ -473,6 +475,10 @@ if __name__ == '__main__':
                         type=str,
                         default="bayopt_search",
                         help="Hyperparameter search algorithm to use. One of [bayopt_search, random_search]")
+    parser.add_argument('--expert_dir', type=str, default='./model_dir/expert_svr',
+                        help='The directory containing SVR model(s) to predict JAK2 pIC50')
+    parser.add_argument('--bias_mode', type=str, choices=['min', 'max'], default='max',
+                        help='The generator biasing objective')
     parser.add_argument('--use_true_reward',
                         action='store_true',
                         help='If true then no reward function would be learned but the true reward would be used.'
