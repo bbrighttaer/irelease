@@ -74,7 +74,7 @@ def load_smiles_data(file, cv, normalize_y=True, k=5, header=0, index_col=0, del
         log('CV splitting completed')
     else:
         log('Splitting data into train, val, and test sets...')
-        x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=seed)
+        x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=1 - train_size, random_state=seed)
         data_dict['train'] = (x_train, y_train)
         if create_val:
             x_val, y_val, x_test, y_test = train_test_split(x_test, y_test, test_size=0.5, random_state=seed)
