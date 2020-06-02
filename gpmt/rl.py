@@ -493,26 +493,26 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             d_samp_out = z.view(-1, 1) * torch.exp(d_samp_out)
 
             # Get rep vectors of trajs from agent_net and calculate the similarity regularization
-            pad_size = max(d_samp.shape[1], d_demo.shape[1])
-            d_samp_padded = torch.cat([d_samp, torch.zeros(d_samp.shape[0], pad_size - d_samp.shape[1])
-                                      .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
-            d_demo_padded = torch.cat([d_demo, torch.zeros(d_demo.shape[0], pad_size - d_demo.shape[1])
-                                      .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
-            d_samp_demo = torch.cat([d_samp_padded, d_demo_padded])
-            hidden = self.agent_net_init_func(d_samp_demo.shape[0], **self.agent_net_init_args)
-            with torch.set_grad_enabled(False):
-                outputs = self.agent_net([d_samp_demo] + hidden)
-            reps = outputs[0].detach()  # shape structure: (seq. len, batch, d_model)
-            reps = reps[-1, :, :]  # select last rep
-            reps = reps / torch.norm(reps, dim=-1, keepdim=True)  # normalize vectors
-            sim_values = reps @ reps.t()  # cosine similarity
-            xx, yy = torch.meshgrid(d_out_combined.view(-1, ), d_out_combined.view(-1, ))
-            sqr_diffs = torch.pow(xx - yy, 2)
-            reg_loss = sim_values * sqr_diffs
-            reg_loss = torch.mean(torch.sum(reg_loss, dim=1))
+            # pad_size = max(d_samp.shape[1], d_demo.shape[1])
+            # d_samp_padded = torch.cat([d_samp, torch.zeros(d_samp.shape[0], pad_size - d_samp.shape[1])
+            #                           .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
+            # d_demo_padded = torch.cat([d_demo, torch.zeros(d_demo.shape[0], pad_size - d_demo.shape[1])
+            #                           .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
+            # d_samp_demo = torch.cat([d_samp_padded, d_demo_padded])
+            # hidden = self.agent_net_init_func(d_samp_demo.shape[0], **self.agent_net_init_args)
+            # with torch.set_grad_enabled(False):
+            #     outputs = self.agent_net([d_samp_demo] + hidden)
+            # reps = outputs[0].detach()  # shape structure: (seq. len, batch, d_model)
+            # reps = reps[-1, :, :]  # select last rep
+            # reps = reps / torch.norm(reps, dim=-1, keepdim=True)  # normalize vectors
+            # sim_values = reps @ reps.t()  # cosine similarity
+            # xx, yy = torch.meshgrid(d_out_combined.view(-1, ), d_out_combined.view(-1, ))
+            # sqr_diffs = torch.pow(xx - yy, 2)
+            # reg_loss = sim_values * sqr_diffs
+            # reg_loss = torch.mean(torch.sum(reg_loss, dim=1))
 
             # objective
-            loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out)) - reg_loss
+            loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out)) # - reg_loss
             losses.append(loss.item())
             loss = -loss  # for maximization
 

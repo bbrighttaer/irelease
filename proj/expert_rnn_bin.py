@@ -2,7 +2,7 @@
 # Project: GPMT
 # Date: 5/21/2020
 # Time: 9:56 AM
-# File: expert_rnn.py
+# File: expert_rnn_reg.py
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
@@ -16,7 +16,7 @@ from datetime import datetime as dt
 import random
 import numpy as np
 import torch
-from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.metrics import precision_score, precision_recall_curve
 from soek.bopt import GPMinArgs
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import Dataset, DataLoader
@@ -69,15 +69,16 @@ class ExpertTrainer(Trainer):
                                  batch_size=hparams['batch'],
                                  collate_fn=lambda x: x)
         # Create model and optimizer
-        model = RNNPredictorModel(d_model=int(hparams['d_model']),
-                                  tokens=get_default_tokens(),
-                                  num_layers=int(hparams['rnn_num_layers']),
-                                  dropout=float(hparams['dropout']),
-                                  bidirectional=hparams['is_bidirectional'],
-                                  unit_type=hparams['unit_type'],
-                                  device=device).to(device)
+        model = torch.nn.Sequential(RNNPredictorModel(d_model=int(hparams['d_model']),
+                                                      tokens=get_default_tokens(),
+                                                      num_layers=int(hparams['rnn_num_layers']),
+                                                      dropout=float(hparams['dropout']),
+                                                      bidirectional=hparams['is_bidirectional'],
+                                                      unit_type=hparams['unit_type'],
+                                                      device=device),
+                                    torch.nn.Sigmoid()).to(device)
         optimizer = parse_optimizer(hparams, model)
-        metrics = [mean_squared_error, r2_score]
+        metrics = [precision_score, precision_recall_curve]
 
         return {'data_loaders': {'train': train_loader,
                                  'val': val_loader,
@@ -96,9 +97,11 @@ class ExpertTrainer(Trainer):
     @staticmethod
     def evaluate(eval_out, y_true, y_pred, metrics):
         for metric in metrics:
+            if metric.__name__ == 'precision_score':
+                y_pred = np.where(y_pred < 0.8, 0, 1)
             res = metric(y_true, y_pred)
             eval_out[metric.__name__] = res
-        return eval_out['r2_score']
+        return eval_out['precision_score']
 
     @staticmethod
     def train(init_dict, n_iterations, transformer, sim_data_node=None, is_hsearch=False, tb_writer=None,
@@ -116,7 +119,7 @@ class ExpertTrainer(Trainer):
         best_epoch = -1
         terminate_training = False
         n_epochs = n_iterations // len(data_loaders['train'])
-        criterion = torch.nn.MSELoss()
+        criterion = torch.nn.BCELoss()
 
         # Since during hyperparameter search values that could cause CUDA memory exception could be sampled
         # we want to ignore such values and find others that are workable within the memory constraints.
@@ -143,9 +146,8 @@ class ExpertTrainer(Trainer):
 
                         # Perform evaluation using the given metrics
                         eval_dict = {}
-                        score = ExpertTrainer.evaluate(eval_dict,
-                                                       transformer.inverse_transform(y_true.cpu().detach().numpy()),
-                                                       transformer.inverse_transform(y_pred.cpu().detach().numpy()),
+                        score = ExpertTrainer.evaluate(eval_dict, y_true.cpu().detach().numpy(),
+                                                       y_pred.cpu().detach().numpy(),
                                                        metrics)
                         for m in eval_dict:
                             if m in metrics:
@@ -205,7 +207,8 @@ def main(flags):
     sim_data.data = nodes_list
 
     # Load the data
-    data_dict, transformer = load_smiles_data(flags.data_file, flags.cv, normalize_y=True, k=flags.folds)
+    data_dict, transformer = load_smiles_data(flags.data_file, flags.cv, normalize_y=False, k=flags.folds,
+                                              index_col=False)
 
     for seed in seeds:
         data_node = DataNode(label="seed_%d" % seed)
