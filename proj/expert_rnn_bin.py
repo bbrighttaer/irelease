@@ -16,7 +16,7 @@ from datetime import datetime as dt
 import random
 import numpy as np
 import torch
-from sklearn.metrics import precision_score, precision_recall_curve
+from sklearn.metrics import accuracy_score, roc_auc_score
 from soek.bopt import GPMinArgs
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import Dataset, DataLoader
@@ -57,14 +57,12 @@ class SmilesDataset(Dataset):
 
 class ExpertTrainer(Trainer):
     @staticmethod
-    def initialize(hparams, train_data, val_data, test_data):
+    def initialize(hparams, train_data, test_data):
         # Create pytorch data loaders
         train_loader = DataLoader(SmilesDataset(train_data[0], train_data[1]),
                                   batch_size=hparams['batch'],
+                                  shuffle=True,
                                   collate_fn=lambda x: x)
-        val_loader = DataLoader(SmilesDataset(val_data[0], val_data[1]),
-                                batch_size=hparams['batch'],
-                                collate_fn=lambda x: x)
         test_loader = DataLoader(SmilesDataset(test_data[0], test_data[1]),
                                  batch_size=hparams['batch'],
                                  collate_fn=lambda x: x)
@@ -78,10 +76,9 @@ class ExpertTrainer(Trainer):
                                                       device=device),
                                     torch.nn.Sigmoid()).to(device)
         optimizer = parse_optimizer(hparams, model)
-        metrics = [precision_score, precision_recall_curve]
+        metrics = [accuracy_score, roc_auc_score]
 
         return {'data_loaders': {'train': train_loader,
-                                 'val': val_loader,
                                  'test': test_loader},
                 'model': model,
                 'optimizer': optimizer,
@@ -96,12 +93,14 @@ class ExpertTrainer(Trainer):
 
     @staticmethod
     def evaluate(eval_out, y_true, y_pred, metrics):
+        y_pred = np.where(y_pred < 0.8, 0, 1)
         for metric in metrics:
-            if metric.__name__ == 'precision_score':
-                y_pred = np.where(y_pred < 0.8, 0, 1)
-            res = metric(y_true, y_pred)
+            try:
+                res = metric(y_true, y_pred)
+            except:
+                res = 0.
             eval_out[metric.__name__] = res
-        return eval_out['precision_score']
+        return eval_out['accuracy_score']
 
     @staticmethod
     def train(init_dict, n_iterations, transformer, sim_data_node=None, is_hsearch=False, tb_writer=None,
@@ -126,7 +125,7 @@ class ExpertTrainer(Trainer):
         with contextlib.suppress(Exception if is_hsearch else DummyException):
             for epoch in range(n_epochs):
                 eval_scores = []
-                for phase in ['train', 'val' if is_hsearch else 'test']:
+                for phase in ['train', 'test']:
                     if phase == 'train':
                         predictor.train()
                     else:
@@ -208,7 +207,7 @@ def main(flags):
 
     # Load the data
     data_dict, transformer = load_smiles_data(flags.data_file, flags.cv, normalize_y=False, k=flags.folds,
-                                              index_col=False)
+                                              index_col=False, shuffle=5, create_val=False, train_size=.7)
 
     for seed in seeds:
         data_node = DataNode(label="seed_%d" % seed)
@@ -278,8 +277,7 @@ def main(flags):
 
 def start_fold(sim_data_node, data_dict, transformer, flags, hyper_params, trainer, k=None, sw_creator=None):
     data = trainer.data_provider(k, data_dict, flags.cv)
-    init_args = trainer.initialize(hparams=hyper_params, train_data=data["train"], val_data=data["val"],
-                                   test_data=data["test"])
+    init_args = trainer.initialize(hparams=hyper_params, train_data=data["train"], test_data=data["test"])
     if flags.eval:
         pass
     else:
