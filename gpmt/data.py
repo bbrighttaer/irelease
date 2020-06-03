@@ -64,7 +64,7 @@ class GeneratorData(object):
         self.file = []
         for i in range(len(data)):
             if len(data[i]) <= max_len:
-                self.file.append(self.start_token + data[i] + self.end_token)
+                self.file.append(self.start_token + data[i].strip() + self.end_token)
         self.file_len = len(self.file)
         self.all_characters, self.char2idx, \
         self.n_characters = tokenize(self.file, tokens)
@@ -88,8 +88,7 @@ class GeneratorData(object):
             random_smiles (str).
         """
         index = np.random.randint(0, self.file_len - 1, batch_size)
-        return [self.file[i][:-1] for i in index], \
-               [self.file[i][1:] for i in index]
+        return [self.file[i][:-1] for i in index], [self.file[i][1:] for i in index]
 
     def random_training_set_smiles(self, batch_size=None):
         if batch_size is None:
@@ -98,16 +97,16 @@ class GeneratorData(object):
         sels = np.random.randint(0, self.file_len - 1, batch_size)
         return [self.file[i][1:-1] for i in sels]
 
-    def random_training_set(self, batch_size=None):
+    def random_training_set(self, batch_size=None, return_seq_len=False):
         if batch_size is None:
             batch_size = self.batch_size
         assert (batch_size > 0)
         inp, target = self.random_chunk(batch_size)
-        inp_padded, _ = pad_sequences(inp)
+        inp_padded, inp_seq_len = pad_sequences(inp)
         inp_tensor, self.all_characters = seq2tensor(inp_padded,
                                                      tokens=self.all_characters,
                                                      flip=False)
-        target_padded, _ = pad_sequences(target)
+        target_padded, target_seq_len = pad_sequences(target)
         target_tensor, self.all_characters = seq2tensor(target_padded,
                                                         tokens=self.all_characters,
                                                         flip=False)
@@ -117,6 +116,8 @@ class GeneratorData(object):
         if self.use_cuda:
             inp_tensor = inp_tensor.cuda()
             target_tensor = target_tensor.cuda()
+        if return_seq_len:
+            return inp_tensor, target_tensor, (inp_seq_len, target_seq_len)
         return inp_tensor, target_tensor
 
     def read_sdf_file(self, path, fields_to_read):

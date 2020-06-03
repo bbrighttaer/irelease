@@ -7,7 +7,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 from collections import namedtuple
-
+import copy
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -439,7 +439,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
     """
 
     def __init__(self, model, optimizer, demo_gen_data, agent_net, agent_net_init_func, agent_net_init_func_args, k=10,
-                 use_buffer=True, buffer_size=1000, buffer_batch_size=100, device='cpu'):
+                 use_buffer=True, buffer_size=1000, buffer_batch_size=100, drop_importance_wts=False, device='cpu'):
         self.model = model
         self.optimizer = optimizer
         self.lr_sch = StepLR(self.optimizer, gamma=0.95, step_size=500)
@@ -455,14 +455,36 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         self.agent_net = agent_net
         self.agent_net_init_func = agent_net_init_func
         self.agent_net_init_args = agent_net_init_func_args
+        self._models = torch.nn.ModuleList()
+        self.drop_imp_wts = drop_importance_wts
 
     @property
     def data_generator(self):
         return self.demo_gen_data
 
+    @torch.no_grad()
+    def calculate_z(self, inp, actions, seq_lens):
+        if self.drop_imp_wts:
+            return torch.ones(len(inp), 1).to(self.device)
+        seq_lens = torch.tensor(seq_lens).long() - 1
+        z = torch.zeros(inp.shape[0], len(self._models)).to(self.device)
+        hidden = self.agent_net_init_func(inp.shape[0], **self.agent_net_init_args)
+        for idx, model in enumerate(self._models):
+            model = model.to(self.device)
+            outputs = model([inp] + hidden)
+            output = outputs[0].permute(1, 0, 2)
+            output = output.reshape(-1, output.shape[-1])
+            probs = torch.log_softmax(output, dim=-1)  # calculate q(t) in log space
+            probs_a = probs[range(len(probs)), actions.view(-1)].view(*actions.shape)
+            probs_a = torch.tensor([torch.sum(probs_a[i, :seq_lens[i]]) for i in range(len(probs_a))]).to(self.device)
+            z[:, idx] = probs_a
+        z = 1. / torch.mean(z, dim=1)
+        return z
+
     @torch.enable_grad()
     def fit(self, trajectories):
         """Train the reward function / model using the GRL algorithm."""
+        self._models.append(copy.deepcopy(self.agent_net).to('cpu'))  # maintain history of sample distributions
         if self.use_buffer:
             extra_trajs = self.replay_buffer.sample(self.batch_size)
             trajectories.extend(extra_trajs)
@@ -473,46 +495,33 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             d_traj_probs.append(traj.traj_prob)
         _, valid_vec_samp = canonical_smiles(d_traj)
         valid_vec_samp = torch.tensor(valid_vec_samp).view(-1, 1).float().to(self.device)
-        d_traj, _ = pad_sequences(d_traj)
-        d_samp, _ = seq2tensor(d_traj, tokens=get_default_tokens())
-        d_samp = torch.from_numpy(d_samp).long().to(self.device)
+        inp, target = [t[:-1] for t in d_traj], [t[1:] for t in d_traj]
+        inp_padded, inp_seq_len = pad_sequences(inp)
+        inp_tensor, _ = seq2tensor(inp_padded, tokens=get_default_tokens(), flip=False)
+        inp_tensor = torch.from_numpy(inp_tensor).long().to(self.device)
+        target_padded, tag_seq_len = pad_sequences(target)
+        target_tensor, _ = seq2tensor(target_padded, tokens=get_default_tokens(), flip=False)
+        target_tensor = torch.from_numpy(target_tensor).long().to(self.device)
+        d_samp = torch.cat([inp_tensor, target_tensor[:, -1].reshape(-1, 1)], dim=1)
+        z_samp = self.calculate_z(inp_tensor, target_tensor, inp_seq_len)
         losses = []
         for i in trange(self.k, desc='IRL optimization...'):
             # D_demo processing
-            demo_states, demo_actions = self.demo_gen_data.random_training_set()
+            demo_states, demo_actions, demo_seq_lens = self.demo_gen_data.random_training_set(return_seq_len=True)
+            z_demo = self.calculate_z(demo_states, demo_actions, demo_seq_lens[0])
             d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)
             valid_vec_demo = torch.ones(d_demo.shape[0]).view(-1, 1).float().to(self.device)
             d_demo_out = self.model([d_demo, valid_vec_demo])
 
             # D_samp processing
             d_samp_out = self.model([d_samp, valid_vec_samp])
-            d_out_combined = torch.cat([d_samp_out, d_demo_out], dim=0)
-            if d_samp_out.shape[0] < 1000:
+            if d_samp_out.shape[0] < 100:
                 d_samp_out = torch.cat([d_samp_out, d_demo_out], dim=0)
-            z = torch.ones(d_samp_out.shape[0]).float().to(self.device)  # dummy importance weights TODO: replace this
-            d_samp_out = z.view(-1, 1) * torch.exp(d_samp_out)
-
-            # Get rep vectors of trajs from agent_net and calculate the similarity regularization
-            # pad_size = max(d_samp.shape[1], d_demo.shape[1])
-            # d_samp_padded = torch.cat([d_samp, torch.zeros(d_samp.shape[0], pad_size - d_samp.shape[1])
-            #                           .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
-            # d_demo_padded = torch.cat([d_demo, torch.zeros(d_demo.shape[0], pad_size - d_demo.shape[1])
-            #                           .fill_(get_default_tokens().index(' ')).long().to(self.device)], dim=1)
-            # d_samp_demo = torch.cat([d_samp_padded, d_demo_padded])
-            # hidden = self.agent_net_init_func(d_samp_demo.shape[0], **self.agent_net_init_args)
-            # with torch.set_grad_enabled(False):
-            #     outputs = self.agent_net([d_samp_demo] + hidden)
-            # reps = outputs[0].detach()  # shape structure: (seq. len, batch, d_model)
-            # reps = reps[-1, :, :]  # select last rep
-            # reps = reps / torch.norm(reps, dim=-1, keepdim=True)  # normalize vectors
-            # sim_values = reps @ reps.t()  # cosine similarity
-            # xx, yy = torch.meshgrid(d_out_combined.view(-1, ), d_out_combined.view(-1, ))
-            # sqr_diffs = torch.pow(xx - yy, 2)
-            # reg_loss = sim_values * sqr_diffs
-            # reg_loss = torch.mean(torch.sum(reg_loss, dim=1))
+                z_samp = torch.cat([z_samp, z_demo])
+            d_samp_out = z_samp * torch.exp(d_samp_out)
 
             # objective
-            loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out)) # - reg_loss
+            loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out))
             losses.append(loss.item())
             loss = -loss  # for maximization
 

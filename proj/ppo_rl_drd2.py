@@ -141,7 +141,7 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
-        expert_model = RNNPredictor(hparams, device, True)
+        expert_model = RNNPredictor(hparams['expert_model_params'], device, True)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],

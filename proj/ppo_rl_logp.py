@@ -250,8 +250,8 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
-        baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
+        demo_score = 0.  # np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
+        baseline_score = 0.  # np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
         with contextlib.suppress():  # (TypeError):  # Mostly arises when generator is not generating valid SMILES
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
@@ -419,13 +419,13 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 1500,
+    return {'d_model': 15,
             'dropout': 0.0,
             'monte_carlo_N': 5,
             'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 10,
+            'episodes_to_train': 2,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
@@ -442,7 +442,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
-                             'stack_width': 1500,
+                             'stack_width': 15,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.0000,
