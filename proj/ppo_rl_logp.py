@@ -26,7 +26,7 @@ from tqdm import tqdm
 from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
-    CriticRNN, RewardNetRNN
+    CriticRNN, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
 from gpmt.predictor import RNNPredictor
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
@@ -87,8 +87,9 @@ class IReLeaSE(Trainer):
                                        stack_width=hparams['agent_params']['stack_width'],
                                        stack_depth=hparams['agent_params']['stack_depth'],
                                        k_mask_func=encoder.k_padding_mask))
-            # rnn_layers.append(StackedRNNDropout(hparams['dropout']))
-            # rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
+            if hparams['agent_params']['num_layers'] > 1:
+                rnn_layers.append(StackedRNNDropout(hparams['dropout']))
+                rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
         agent_net = nn.Sequential(encoder,
                                   *rnn_layers,
                                   StackRNNLinear(out_dim=demo_data_gen.n_characters,
@@ -419,7 +420,7 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 15,
+    return {'d_model': 1500,
             'dropout': 0.0,
             'monte_carlo_N': 5,
             'use_monte_carlo_sim': True,
@@ -442,7 +443,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 1,
-                             'stack_width': 15,
+                             'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.0000,
