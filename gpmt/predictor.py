@@ -40,14 +40,15 @@ class RNNPredictor(Predictor):
                 with open(os.path.join(expert_model_dir, model_file), 'rb') as f:
                     self.transformer = joblib.load(f)
                     continue
-            model = torch.nn.Sequential(RNNPredictorModel(d_model=hparams['d_model'],
-                                                          tokens=self.tokens,
-                                                          num_layers=hparams['rnn_num_layers'],
-                                                          dropout=hparams['dropout'],
-                                                          bidirectional=hparams['is_bidirectional'],
-                                                          unit_type=hparams['unit_type'],
-                                                          device=device),
-                                        torch.nn.Sigmoid() if is_binary else torch.nn.Identity()).to(device)
+            model = RNNPredictorModel(d_model=hparams['d_model'],
+                                      tokens=self.tokens,
+                                      num_layers=hparams['rnn_num_layers'],
+                                      dropout=hparams['dropout'],
+                                      bidirectional=hparams['is_bidirectional'],
+                                      unit_type=hparams['unit_type'],
+                                      device=device).to(device)
+            if is_binary:
+                model = torch.nn.Sequential(model, torch.nn.Sigmoid()).to(device)
             model.load_state_dict(torch.load(os.path.join(expert_model_dir, model_file),
                                              map_location=torch.device(device)))
             self.models.append(model)

@@ -29,7 +29,7 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN
-from gpmt.predictor import SVCPredictor, get_drd2_activity_reward, RNNPredictor
+from gpmt.predictor import get_drd2_activity_reward, RNNPredictor
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
