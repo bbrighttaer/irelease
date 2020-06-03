@@ -40,7 +40,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -251,8 +251,8 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        demo_score = 0.  # np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
-        baseline_score = 0.  # np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
+        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
+        baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
         with contextlib.suppress():  # (TypeError):  # Mostly arises when generator is not generating valid SMILES
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
@@ -306,12 +306,12 @@ class IReLeaSE(Trainer):
                         hscore = (2.0 * eval_score * score) / (eval_score + score)
                         tracker.track('H-score', hscore, step_idx)
                         exp_avg.update(score)
-                        if exp_avg.value >= score_threshold:  # hscore >= best_score:
+                        if exp_avg.value >= best_score:  # hscore >= best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-                            break
+                            # break
 
                         if done_episodes == n_episodes:
                             print('Training completed!')
@@ -426,7 +426,7 @@ def default_hparams(args):
             'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 2,
+            'episodes_to_train': 10,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
@@ -454,7 +454,7 @@ def default_hparams(args):
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001},
-            'expert_model_params': {'model_dir': './model_dir/expert_rnn',
+            'expert_model_params': {'model_dir': './model_dir/expert_rnn_reg',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,
                                     'dropout': 0.8,

@@ -6,26 +6,27 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import contextlib
-import os
 import argparse
-import time
+import contextlib
 import copy
+import os
+import random
+import time
 from collections import defaultdict
 from datetime import datetime as dt
-import random
+
 import numpy as np
 import torch
 from sklearn.metrics import r2_score, mean_squared_error
+from soek import Trainer, DataNode, CategoricalParam, DiscreteParam, RealParam, LogRealParam, RandomSearch, \
+    BayesianOptSearch
 from soek.bopt import GPMinArgs
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import Dataset, DataLoader
-from soek import Trainer, DataNode, CategoricalParam, DiscreteParam, RealParam, LogRealParam, RandomSearch, \
-    BayesianOptSearch
 from tqdm import tqdm
 
-from gpmt.model import RNNPredictorModel
 from gpmt.dataloader import load_smiles_data
+from gpmt.model import RNNPredictorModel
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, time_since, DummyException
 
 currentDT = dt.now()
@@ -62,9 +63,10 @@ class ExpertTrainer(Trainer):
         train_loader = DataLoader(SmilesDataset(train_data[0], train_data[1]),
                                   batch_size=hparams['batch'],
                                   collate_fn=lambda x: x)
-        val_loader = DataLoader(SmilesDataset(val_data[0], val_data[1]),
-                                batch_size=hparams['batch'],
-                                collate_fn=lambda x: x)
+        if val_data:
+            val_loader = DataLoader(SmilesDataset(val_data[0], val_data[1]),
+                                    batch_size=hparams['batch'],
+                                    collate_fn=lambda x: x)
         test_loader = DataLoader(SmilesDataset(test_data[0], test_data[1]),
                                  batch_size=hparams['batch'],
                                  collate_fn=lambda x: x)
@@ -80,7 +82,7 @@ class ExpertTrainer(Trainer):
         metrics = [mean_squared_error, r2_score]
 
         return {'data_loaders': {'train': train_loader,
-                                 'val': val_loader,
+                                 'val': val_loader if val_data else None,
                                  'test': test_loader},
                 'model': model,
                 'optimizer': optimizer,
@@ -181,8 +183,8 @@ class ExpertTrainer(Trainer):
 
     @staticmethod
     def save_model(model, path, name):
-        os.makedirs(os.path.join(path, 'expert_rnn'), exist_ok=True)
-        file = os.path.join(path, 'expert_rnn', name + ".mod")
+        os.makedirs(os.path.join(path, 'expert_rnn_reg'), exist_ok=True)
+        file = os.path.join(path, 'expert_rnn_reg', name + ".mod")
         torch.save(model.state_dict(), file)
 
     @staticmethod
@@ -205,7 +207,8 @@ def main(flags):
     sim_data.data = nodes_list
 
     # Load the data
-    data_dict, transformer = load_smiles_data(flags.data_file, flags.cv, normalize_y=True, k=flags.folds)
+    data_dict, transformer = load_smiles_data(flags.data_file, flags.cv, normalize_y=True, k=flags.folds, shuffle=5,
+                                              create_val=False, train_size=.8)
 
     for seed in seeds:
         data_node = DataNode(label="seed_%d" % seed)
@@ -275,7 +278,8 @@ def main(flags):
 
 def start_fold(sim_data_node, data_dict, transformer, flags, hyper_params, trainer, k=None, sw_creator=None):
     data = trainer.data_provider(k, data_dict, flags.cv)
-    init_args = trainer.initialize(hparams=hyper_params, train_data=data["train"], val_data=data["val"],
+    init_args = trainer.initialize(hparams=hyper_params, train_data=data["train"],
+                                   val_data=data["val"] if 'val' in data else None,
                                    test_data=data["test"])
     if flags.eval:
         pass
@@ -295,12 +299,12 @@ def default_params(flag):
     return {'batch': 128,
             'd_model': 128,
             'rnn_num_layers': 2,
-            'dropout': 0.0,
+            'dropout': 0.8,
             'is_bidirectional': False,
             'unit_type': 'lstm',
             'optimizer': 'adam',
             'optimizer__global__weight_decay': 0.000,
-            'optimizer__global__lr': 0.001}
+            'optimizer__global__lr': 0.005}
 
 
 def hparams_config():
