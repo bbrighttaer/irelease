@@ -287,7 +287,7 @@ def start_fold(sim_data_node, data_dict, transformer, flags, hyper_params, train
         pass
     else:
         # Train the model
-        results = trainer.train(init_args, n_iterations=10000, transformer=transformer, sim_data_node=sim_data_node,
+        results = trainer.train(init_args, n_iterations=5000, transformer=transformer, sim_data_node=sim_data_node,
                                 tb_writer=sw_creator, print_every=1)
         model, score, epoch = results['model'], results['score'], results['epoch']
         # Save the model.
