@@ -402,7 +402,7 @@ def main(flags):
             extra_train_args = {'agent_net_path': flags.model_dir,
                                 'agent_net_name': flags.pretrained_model,
                                 'seed': seed,
-                                'n_episodes': 500,
+                                'n_episodes': 300,
                                 'is_hsearch': True,
                                 'tb_writer': summary_writer_creator}
             hparams_conf = get_hparam_config(flags)
@@ -438,7 +438,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=8000,
+                                     n_episodes=400,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -532,7 +532,7 @@ def get_hparam_config(args):
                                         'optimizer__global__weight_decay': LogRealParam(),
                                         'optimizer__global__lr': LogRealParam()}),
             'agent_params': DictParam({'unit_type': ConstantParam('gru'),
-                                       'num_layers': ConstantParam(1),
+                                       'num_layers': ConstantParam(2),
                                        'stack_width': ConstantParam(1500),
                                        'stack_depth': ConstantParam(200),
                                        'optimizer': ConstantParam('adadelta'),
@@ -544,11 +544,11 @@ def get_hparam_config(args):
                                         'optimizer': ConstantParam('adadelta'),
                                         'optimizer__global__weight_decay': LogRealParam(),
                                         'optimizer__global__lr': LogRealParam()}),
-            'expert_model_params': DictParam({'model_dir': ConstantParam('./model_dir/expert'),
+            'expert_model_params': DictParam({'model_dir': ConstantParam('./model_dir/expert_rnn_bin'),
                                               'd_model': ConstantParam(128),
                                               'rnn_num_layers': ConstantParam(2),
                                               'dropout': ConstantParam(0.8),
-                                              'is_bidirectional': ConstantParam(False),
+                                              'is_bidirectional': ConstantParam(True),
                                               'unit_type': ConstantParam('lstm')})
             }
 

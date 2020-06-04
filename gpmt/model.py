@@ -632,12 +632,12 @@ class RewardNetRNN(nn.Module):
 
 
 class CriticRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, unit_type='gru', num_layers=1):
+    def __init__(self, input_size, hidden_size, unit_type='gru', num_layers=1, dropout=0.):
         super(CriticRNN, self).__init__()
         rnn = nn.GRU if unit_type == 'gru' else nn.LSTM
         self.has_cell = unit_type == 'lstm'
         self.hidden_size = hidden_size
-        self.rnn = rnn(input_size, hidden_size, num_layers, bidirectional=True)
+        self.rnn = rnn(input_size, hidden_size, num_layers, bidirectional=True, dropout=dropout)
         self.num_layers = num_layers
         self.norm = nn.LayerNorm(hidden_size * 2)
         self.linear = nn.Linear(hidden_size * 2, 1)

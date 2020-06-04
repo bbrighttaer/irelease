@@ -515,7 +515,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             d_samp_out = z.view(-1, 1) * torch.exp(d_samp_out)
 
             # objective
-            loss = torch.mean(d_demo_out) - len(d_demo_out) * torch.log(torch.mean(d_samp_out))
+            loss = torch.mean(d_demo_out) - torch.log(torch.mean(d_samp_out))
             losses.append(loss.item())
             loss = -loss  # for maximization
 

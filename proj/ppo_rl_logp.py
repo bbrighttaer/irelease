@@ -116,6 +116,7 @@ class IReLeaSE(Trainer):
         critic = nn.Sequential(encoder,
                                CriticRNN(hparams['d_model'], hparams['critic_params']['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
+                                         dropout=hparams['critic_params']['dropout'],
                                          num_layers=hparams['critic_params']['num_layers']))
         critic = critic.to(device)
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
@@ -137,7 +138,7 @@ class IReLeaSE(Trainer):
                                                 num_layers=hparams['reward_params']['num_layers'],
                                                 bidirectional=hparams['reward_params']['bidirectional'],
                                                 use_attention=hparams['reward_params']['use_attention'],
-                                                dropout=hparams['dropout'],
+                                                dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
         expert_model = RNNPredictor(hparams['expert_model_params'], device)
@@ -303,9 +304,9 @@ class IReLeaSE(Trainer):
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        hscore = (2.0 * eval_score * score) / (eval_score + score)
+                        hscore = (2.0 * eval_score * percentage_in_threshold) / (eval_score + percentage_in_threshold)
                         tracker.track('H-score', hscore, step_idx)
-                        exp_avg.update(score)
+                        exp_avg.update(hscore)
                         if exp_avg.value >= best_score:  # hscore >= best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
@@ -400,7 +401,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=8000,
+                                     n_episodes=500,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -432,17 +433,18 @@ def default_hparams(args):
             'ppo_batch': 1,
             'ppo_epochs': 5,
             'reward_params': {'num_layers': 2,
-                              'd_model': 256,
-                              'unit_type': 'lstm',
+                              'd_model': 512,
+                              'unit_type': 'gru',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
+                              'dropout': 0.2,
                               'use_attention': args.use_attention,
                               'bidirectional': True,
                               'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.0000,
+                              'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
+                             'num_layers': 2,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
@@ -450,6 +452,7 @@ def default_hparams(args):
                              'optimizer__global__lr': 0.001},
             'critic_params': {'num_layers': 2,
                               'd_model': 256,
+                              'dropout': 0.2,
                               'unit_type': 'lstm',
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.00005,
