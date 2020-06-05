@@ -39,10 +39,10 @@ from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, i
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [1, 7]
+seeds = [0, 3]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 1
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -98,10 +98,7 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
-        try:
-            agent_net = agent_net.to(device)
-        except:
-            pass
+        agent_net = agent_net.to(device)
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
         probs_reg = StateActionProbRegistry()
@@ -122,10 +119,7 @@ class IReLeaSE(Trainer):
                                CriticRNN(hparams['d_model'], hparams['critic_params']['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
                                          num_layers=hparams['critic_params']['num_layers']))
-        try:
-            critic = critic.to(device)
-        except:
-             pass
+        critic = critic.to(device)
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
                       critic=critic, critic_opt=optimizer_critic_net,
@@ -147,10 +141,7 @@ class IReLeaSE(Trainer):
                                                 use_attention=hparams['reward_params']['use_attention'],
                                                 dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
-        try:
-            reward_net = reward_net.to(device)
-        except:
-            pass
+        reward_net = reward_net.to(device)
         expert_model = RNNPredictor(hparams['expert_model_params'], device, True)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
@@ -167,6 +158,10 @@ class IReLeaSE(Trainer):
                                           agent_net_init_func=agent_net_hidden_states_func,
                                           agent_net_init_func_args=init_state_args,
                                           device=device)
+        with contextlib.suppress(Exception):
+            agent_net = agent_net.to(device)
+            critic = critic.to(device)
+            reward_net = reward_net.to(device)
 
         init_args = {'agent': agent,
                      'probs_reg': probs_reg,
@@ -310,20 +305,17 @@ class IReLeaSE(Trainer):
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        # hscore = (2.0 * eval_score * mean_preds) / (eval_score + mean_preds)
-                        # tracker.track('H-mean_preds', hscore, step_idx)
-                        exp_avg.update(mean_preds)
-                        if is_hsearch:
+                        diversity = 0 if eval_score >= 0.2 else np.log(eval_score)
+                        score = 2 * np.exp(mean_preds) + max(-np.exp(mean_preds), np.log(per_valid)) + max(
+                            -np.exp(mean_preds), diversity)
+                        tracker.track('score', score, step_idx)
+                        exp_avg.update(score)
+                        if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-                        if exp_avg.value >= score_threshold:  # hscore >= best_score:
-                            best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
-                                              copy.deepcopy(drl_algorithm.critic.state_dict()),
-                                              copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = exp_avg.value
-                            break
+                            # break
 
                         if done_episodes == n_episodes:
                             print('Training completed!')
@@ -479,7 +471,6 @@ def default_hparams(args):
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 3,
-            'svc_path': args.svc,
             'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 3,
                               'd_model': 498,
@@ -516,8 +507,8 @@ def default_hparams(args):
 
 def get_hparam_config(args):
     return {'d_model': ConstantParam(1500),
-            'dropout': ConstantParam(0.),
-            'monte_carlo_N': DiscreteParam(min=2, max=10),
+            'dropout': RealParam(min=0.),
+            'monte_carlo_N': ConstantParam(5),
             'use_monte_carlo_sim': ConstantParam(True),
             'no_mc_fill_val': ConstantParam(0.0),
             'gamma': ConstantParam(0.97),
@@ -526,11 +517,10 @@ def get_hparam_config(args):
             'ppo_eps': ConstantParam(0.2),
             'ppo_batch': ConstantParam(1),
             'ppo_epochs': DiscreteParam(2, max=10),
-            'svc_path': ConstantParam(args.svc),
             'use_true_reward': ConstantParam(args.use_true_reward),
             'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
                                         'd_model': DiscreteParam(min=128, max=1024),
-                                        'unit_type': CategoricalParam(choices=['lstm', 'gru']),
+                                        'unit_type': ConstantParam('lstm'),
                                         'demo_batch_size': CategoricalParam([64, 128, 256]),
                                         'irl_alg_num_iter': DiscreteParam(2, max=10),
                                         'use_attention': ConstantParam(False),
@@ -546,7 +536,7 @@ def get_hparam_config(args):
                                        'stack_depth': ConstantParam(200),
                                        'optimizer': ConstantParam('adadelta'),
                                        'optimizer__global__weight_decay': LogRealParam(),
-                                       'optimizer__global__lr': ConstantParam(0.001)}),
+                                       'optimizer__global__lr': LogRealParam()}),
             'critic_params': DictParam({'num_layers': ConstantParam(2),
                                         'd_model': ConstantParam(256),
                                         'unit_type': ConstantParam('lstm'),
@@ -593,7 +583,6 @@ if __name__ == '__main__':
                         action='store_true',
                         help='If true then no reward function would be learned but the true reward would be used.'
                              'This requires that the explicit reward function is given.')
-    parser.add_argument('--svc', type=str, help='Path to the DRD2 SVC model')
 
     args = parser.parse_args()
     flags = Flags()
