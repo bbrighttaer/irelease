@@ -39,7 +39,7 @@ from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, i
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [1]
+seeds = [1, 7]
 
 if torch.cuda.is_available():
     dvc_id = 0
@@ -98,7 +98,10 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
-        agent_net = agent_net.to(device)
+        try:
+            agent_net = agent_net.to(device)
+        except:
+            pass
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
         probs_reg = StateActionProbRegistry()
@@ -119,7 +122,10 @@ class IReLeaSE(Trainer):
                                CriticRNN(hparams['d_model'], hparams['critic_params']['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
                                          num_layers=hparams['critic_params']['num_layers']))
-        critic = critic.to(device)
+        try:
+            critic = critic.to(device)
+        except:
+             pass
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
                       critic=critic, critic_opt=optimizer_critic_net,
@@ -141,7 +147,10 @@ class IReLeaSE(Trainer):
                                                 use_attention=hparams['reward_params']['use_attention'],
                                                 dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
-        reward_net = reward_net.to(device)
+        try:
+            reward_net = reward_net.to(device)
+        except:
+            pass
         expert_model = RNNPredictor(hparams['expert_model_params'], device, True)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
@@ -215,7 +224,7 @@ class IReLeaSE(Trainer):
         return div_score
 
     @staticmethod
-    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
+    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500, sim_data_node=None,
               tb_writer=None, is_hsearch=False, n_to_generate=200):
         tb_writer = tb_writer()
         agent = init_args['agent']
@@ -255,9 +264,9 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
-        baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
         with contextlib.suppress(Exception if is_hsearch else DummyException):
+            demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
+            baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
                     exp_traj.append(exp)
@@ -287,10 +296,10 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         per_active = float(len([v for v in predictions if v >= 0.8])) / len(predictions)
-                        score = np.mean(predictions)
+                        mean_preds = np.mean(predictions)
                         per_valid = len(predictions) / n_to_generate
-                        print(f'Mean value of predictions = {score}, % of valid SMILES = {per_valid}')
-                        tb_writer.add_scalars('qsar_score', {'sampled': score,
+                        print(f'Mean value of predictions = {mean_preds}, % of valid SMILES = {per_valid}')
+                        tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
                         tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
@@ -301,9 +310,9 @@ class IReLeaSE(Trainer):
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        hscore = (2.0 * eval_score * score) / (eval_score + score)
-                        tracker.track('H-score', hscore, step_idx)
-                        exp_avg.update(score)
+                        # hscore = (2.0 * eval_score * mean_preds) / (eval_score + mean_preds)
+                        # tracker.track('H-mean_preds', hscore, step_idx)
+                        exp_avg.update(mean_preds)
                         if is_hsearch:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
@@ -339,9 +348,10 @@ class IReLeaSE(Trainer):
                     trajectories.clear()
                     exp_trajectories.clear()
 
-        drl_algorithm.actor.load_state_dict(best_model_wts[0])
-        drl_algorithm.critic.load_state_dict(best_model_wts[1])
-        irl_algorithm.model.load_state_dict(best_model_wts[2])
+        if best_model_wts:
+            drl_algorithm.actor.load_state_dict(best_model_wts[0])
+            drl_algorithm.critic.load_state_dict(best_model_wts[1])
+            irl_algorithm.model.load_state_dict(best_model_wts[2])
         duration = time.time() - start
         print('\nTraining duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
         return {'model': [drl_algorithm.actor,
@@ -464,44 +474,43 @@ def default_hparams(args):
             'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 10,
-            'gae_lambda': 0.95,
+            'episodes_to_train': 8,
+            'gae_lambda': 0.9286733344140354,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
-            'ppo_epochs': 5,
+            'ppo_epochs': 3,
             'svc_path': args.svc,
             'use_true_reward': args.use_true_reward,
-            'reward_params': {'num_layers': 2,
-                              'd_model': 512,
+            'reward_params': {'num_layers': 3,
+                              'd_model': 498,
                               'unit_type': 'lstm',
-                              'demo_batch_size': 32,
-                              'irl_alg_num_iter': 5,
-                              'use_attention': args.use_attention,
+                              'demo_batch_size': 128,
+                              'irl_alg_num_iter': 7,
+                              'use_attention': False,
                               'bidirectional': True,
-                              'dropout': 0.2,
+                              'dropout': 0.29850230980009723,
                               'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.0005,
-                              'optimizer__global__lr': 0.001, },
+                              'optimizer__global__weight_decay': 0.0007735674550394091,
+                              'optimizer__global__lr': 0.00019654259550693892},
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
+                             'num_layers': 2,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
-                             'optimizer__global__weight_decay': 0.0000,
+                             'optimizer__global__weight_decay': 0.00753275956781982,
                              'optimizer__global__lr': 0.001},
             'critic_params': {'num_layers': 2,
                               'd_model': 256,
                               'unit_type': 'lstm',
                               'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.00005,
-                              'optimizer__global__lr': 0.001},
-            'expert_model_params': {'batch': 128,
+                              'optimizer__global__weight_decay': 0.00024248732453026716,
+                              'optimizer__global__lr': 0.4106583576251872},
+            'expert_model_params': {'model_dir': './model_dir/expert_rnn_bin',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,
-                                    'dropout': 0.0,
+                                    'dropout': 0.8,
                                     'is_bidirectional': True,
-                                    'unit_type': 'lstm',
-                                    'model_dir': './model_dir/expert_rnn_bin'}
+                                    'unit_type': 'lstm'}
             }
 
 
