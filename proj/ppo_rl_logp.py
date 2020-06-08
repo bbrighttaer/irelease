@@ -297,10 +297,10 @@ class IReLeaSE(Trainer):
                         except:
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
-                        print(f'Mean value of predictions = {score}, '
+                        print(f'Mean value of predictions = {mean_preds}, '
                               f'% of valid SMILES = {per_valid}, '
                               f'% in drug-like region={percentage_in_threshold}')
-                        tb_writer.add_scalars('qsar_score', {'sampled': score,
+                        tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
                         tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
