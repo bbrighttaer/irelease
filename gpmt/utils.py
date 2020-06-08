@@ -6,6 +6,7 @@ import time
 import warnings
 
 import numpy as np
+import pandas as pd
 import torch
 from rdkit import Chem
 from rdkit import DataStructs
@@ -724,6 +725,27 @@ def get_activation_func(activation):
             'softmax': torch.nn.Softmax(),
             'elu': torch.nn.ELU(),
             'nonsat': NonsatActivation()}.get(activation.lower(), torch.nn.ReLU())
+
+
+def parse_hparams(file, index):
+    hdata = pd.read_csv(file, header=0)
+    hdict = hdata.to_dict('index')
+    hdict = hdict[list(hdict.keys())[index]]
+    return _rec_parse_hparams(hdict)
+
+
+def _rec_parse_hparams(p_dict):
+    hparams = {}
+    for k in p_dict:
+        v = p_dict[k]
+        try:
+            new_v = eval(v.replace('./', '')) if isinstance(v, str) else v
+            if isinstance(new_v, dict):
+                new_v = _rec_parse_hparams(new_v)
+            hparams[k] = new_v
+        except NameError:
+            hparams[k] = v
+    return hparams
 
 
 class ExpAverage(object):

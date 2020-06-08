@@ -34,15 +34,15 @@ from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, calculate_internal_diversity, ExpAverage, DummyException
+    time_since, generate_smiles, calculate_internal_diversity, ExpAverage, DummyException, parse_hparams
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [0, 3]
+seeds = [71]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -98,7 +98,8 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
-        agent_net = agent_net.to(device)
+        with contextlib.suppress(Exception):
+            agent_net = agent_net.to(device)
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
         probs_reg = StateActionProbRegistry()
@@ -119,7 +120,8 @@ class IReLeaSE(Trainer):
                                CriticRNN(hparams['d_model'], hparams['critic_params']['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
                                          num_layers=hparams['critic_params']['num_layers']))
-        critic = critic.to(device)
+        with contextlib.suppress(Exception):
+            critic = critic.to(device)
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
                       critic=critic, critic_opt=optimizer_critic_net,
@@ -141,7 +143,8 @@ class IReLeaSE(Trainer):
                                                 use_attention=hparams['reward_params']['use_attention'],
                                                 dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
-        reward_net = reward_net.to(device)
+        with contextlib.suppress(Exception):
+            reward_net = reward_net.to(device)
         expert_model = RNNPredictor(hparams['expert_model_params'], device, True)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
@@ -158,10 +161,6 @@ class IReLeaSE(Trainer):
                                           agent_net_init_func=agent_net_hidden_states_func,
                                           agent_net_init_func_args=init_state_args,
                                           device=device)
-        with contextlib.suppress(Exception):
-            agent_net = agent_net.to(device)
-            critic = critic.to(device)
-            reward_net = reward_net.to(device)
 
         init_args = {'agent': agent,
                      'probs_reg': probs_reg,
@@ -234,7 +233,7 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         best_score = 0.
-        exp_avg = ExpAverage(beta=0.6)
+        score_exp_avg = ExpAverage(beta=0.6)
         score_threshold = 0.8
 
         # load pretrained model
@@ -259,7 +258,7 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        with contextlib.suppress(Exception if is_hsearch else DummyException):
+        try:
             demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
             baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
             with TBMeanTracker(tb_writer, 1) as tracker:
@@ -304,19 +303,22 @@ class IReLeaSE(Trainer):
                         eval_score = IReLeaSE.evaluate(eval_dict, samples)
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
-                        tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
+                        avg_len = np.nanmean([len(s) for s in samples])
+                        tracker.track('Average SMILES length', avg_len, step_idx)
                         diversity = 0 if eval_score >= 0.2 else np.log(eval_score)
+                        smile_length = 0 if avg_len >= 20 else -np.exp(mean_preds)
                         score = 2 * np.exp(mean_preds) + max(-np.exp(mean_preds), np.log(per_valid)) + max(
-                            -np.exp(mean_preds), diversity)
+                            -np.exp(mean_preds), diversity) + smile_length
                         tracker.track('score', score, step_idx)
-                        exp_avg.update(score)
-                        if exp_avg.value > best_score:
+                        score_exp_avg.update(mean_preds)
+                        if score_exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = exp_avg.value
-                            # break
-
+                            best_score = score_exp_avg.value
+                        if is_hsearch and per_valid < 0.5:
+                            # best_score = 0.
+                            break
                         if done_episodes == n_episodes:
                             print('Training completed!')
                             break
@@ -339,6 +341,8 @@ class IReLeaSE(Trainer):
                     batch_episodes = 0
                     trajectories.clear()
                     exp_trajectories.clear()
+        except Exception if is_hsearch else DummyException:
+            best_score = 0.
 
         if best_model_wts:
             drl_algorithm.actor.load_state_dict(best_model_wts[0])
@@ -373,9 +377,6 @@ def main(flags):
     nodes_list = []
     sim_data.data = nodes_list
 
-    # For searching over multiple seeds
-    hparam_search = None
-
     for seed in seeds:
         summary_writer_creator = lambda: SummaryWriter(log_dir="irelease"
                                                                "/{}_{}_{}/".format(sim_label, seed, dt.now().strftime(
@@ -408,33 +409,36 @@ def main(flags):
                                 'is_hsearch': True,
                                 'tb_writer': summary_writer_creator}
             hparams_conf = get_hparam_config(flags)
-            if hparam_search is None:
-                search_alg = {'random_search': RandomSearch,
-                              'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
-                                                                      BayesianOptSearch)
-                search_args = GPMinArgs(n_calls=20, random_state=seed)
-                hparam_search = search_alg(hparam_config=hparams_conf,
-                                           num_folds=1,
-                                           initializer=irelease.initialize,
-                                           data_provider=irelease.data_provider,
-                                           train_fn=irelease.train,
-                                           save_model_fn=irelease.save_model,
-                                           alg_args=search_args,
-                                           init_args=extra_init_args,
-                                           data_args=extra_data_args,
-                                           train_args=extra_train_args,
-                                           data_node=data_node,
-                                           split_label='ppo-rl',
-                                           sim_label=sim_label,
-                                           dataset_label=None,
-                                           results_file=f'{flags.hparam_search_alg}_{sim_label}_{date_label}')
+            search_alg = {'random_search': RandomSearch,
+                          'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
+                                                                  BayesianOptSearch)
+            search_args = GPMinArgs(n_calls=20, random_state=seed)
+            hparam_search = search_alg(hparam_config=hparams_conf,
+                                       num_folds=1,
+                                       initializer=irelease.initialize,
+                                       data_provider=irelease.data_provider,
+                                       train_fn=irelease.train,
+                                       save_model_fn=irelease.save_model,
+                                       alg_args=search_args,
+                                       init_args=extra_init_args,
+                                       data_args=extra_data_args,
+                                       train_args=extra_train_args,
+                                       data_node=data_node,
+                                       split_label='ppo-rl',
+                                       sim_label=sim_label,
+                                       dataset_label=None,
+                                       results_file=f'{flags.hparam_search_alg}_{sim_label}'
+                                                    f'_{date_label}_seed_{seed}')
             start = time.time()
             stats = hparam_search.fit()
             print(f'Duration = {time_since(start)}')
             print(stats)
             print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
-            hyper_params = default_hparams(flags)
+            hyper_params = parse_hparams(
+                file='bayopt_search_DRD2_activity_IReLeaSE-ppo_with_irl_no_attn_2020_06_06__00_28_35_gp.csv',
+                index=1)
+            # hyper_params =  default_hparams(flags)
             data_gens = irelease.data_provider(k, flags)
             init_args = irelease.initialize(hyper_params, data_gens['demo_data'], data_gens['unbiased_data'],
                                             data_gens['prior_data'])
@@ -461,41 +465,28 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 1500,
-            'dropout': 0.0,
+            'dropout': 0.1919560782374305,
             'monte_carlo_N': 5,
             'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 8,
-            'gae_lambda': 0.9286733344140354,
+            'episodes_to_train': 12,
+            'gae_lambda': 0.9228059180288825,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
-            'ppo_epochs': 3,
+            'ppo_epochs': 6,
             'use_true_reward': args.use_true_reward,
-            'reward_params': {'num_layers': 3,
-                              'd_model': 498,
-                              'unit_type': 'lstm',
-                              'demo_batch_size': 128,
-                              'irl_alg_num_iter': 7,
-                              'use_attention': False,
-                              'bidirectional': True,
-                              'dropout': 0.29850230980009723,
-                              'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.0007735674550394091,
-                              'optimizer__global__lr': 0.00019654259550693892},
-            'agent_params': {'unit_type': 'gru',
-                             'num_layers': 2,
-                             'stack_width': 1500,
-                             'stack_depth': 200,
-                             'optimizer': 'adadelta',
-                             'optimizer__global__weight_decay': 0.00753275956781982,
-                             'optimizer__global__lr': 0.001},
-            'critic_params': {'num_layers': 2,
-                              'd_model': 256,
-                              'unit_type': 'lstm',
-                              'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.00024248732453026716,
-                              'optimizer__global__lr': 0.4106583576251872},
+            'reward_params': {'num_layers': 2, 'd_model': 172, 'unit_type': 'lstm', 'demo_batch_size': 128,
+                              'irl_alg_num_iter': 3, 'use_attention': False, 'bidirectional': True,
+                              'dropout': 0.3963193243801649, 'optimizer': 'sgd',
+                              'optimizer__global__weight_decay': 0.010945638802254014,
+                              'optimizer__global__lr': 0.000256177468757563},
+            'agent_params': {'unit_type': 'gru', 'num_layers': 2, 'stack_width': 1500, 'stack_depth': 200,
+                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.001428470680331549,
+                             'optimizer__global__lr': 0.0008453447466167819},
+            'critic_params': {'num_layers': 2, 'd_model': 256, 'unit_type': 'lstm', 'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.7424576981970683,
+                              'optimizer__global__lr': 0.0012980019737052746},
             'expert_model_params': {'model_dir': './model_dir/expert_rnn_bin',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,

@@ -19,7 +19,9 @@ import torch
 import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
-from soek import Trainer, DataNode
+from soek import Trainer, DataNode, ConstantParam, DictParam, LogRealParam, CategoricalParam, DiscreteParam, RealParam, \
+    BayesianOptSearch, RandomSearch
+from soek.bopt import GPMinArgs
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -27,7 +29,7 @@ from gpmt.data import GeneratorData
 from gpmt.env import MoleculeEnv
 from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
-from gpmt.predictor import RNNPredictor
+from gpmt.predictor import RNNPredictor, get_logp_reward
 from gpmt.reward import RewardFunction
 from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
@@ -37,10 +39,10 @@ from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, i
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [1]
+seeds = [1, 11, 71, 7]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -96,7 +98,8 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
-        agent_net = agent_net.to(device)
+        with contextlib.suppress(Exception):
+            agent_net = agent_net.to(device)
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
         probs_reg = StateActionProbRegistry()
@@ -118,7 +121,8 @@ class IReLeaSE(Trainer):
                                          unit_type=hparams['critic_params']['unit_type'],
                                          dropout=hparams['critic_params']['dropout'],
                                          num_layers=hparams['critic_params']['num_layers']))
-        critic = critic.to(device)
+        with contextlib.suppress(Exception):
+            critic = critic.to(device)
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
                       critic=critic, critic_opt=optimizer_critic_net,
@@ -140,12 +144,15 @@ class IReLeaSE(Trainer):
                                                 use_attention=hparams['reward_params']['use_attention'],
                                                 dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
-        reward_net = reward_net.to(device)
+        with contextlib.suppress(Exception):
+            reward_net = reward_net.to(device)
         expert_model = RNNPredictor(hparams['expert_model_params'], device)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
                                          expert_func=expert_model,
+                                         use_true_reward=hparams['use_true_reward'],
+                                         true_reward_func=get_logp_reward,
                                          no_mc_fill_val=hparams['no_mc_fill_val'])
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         demo_data_gen.set_batch_size(hparams['reward_params']['demo_batch_size'])
@@ -212,7 +219,7 @@ class IReLeaSE(Trainer):
         return div_score
 
     @staticmethod
-    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
+    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500, sim_data_node=None,
               tb_writer=None, is_hsearch=False, n_to_generate=200):
         tb_writer = tb_writer()
         agent = init_args['agent']
@@ -283,7 +290,7 @@ class IReLeaSE(Trainer):
                             samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
-                        score = np.mean(predictions)
+                        mean_preds = np.mean(predictions)
                         try:
                             percentage_in_threshold = np.sum((predictions >= 0.0) &
                                                              (predictions <= 5.0)) / len(predictions)
@@ -303,11 +310,15 @@ class IReLeaSE(Trainer):
                         eval_score = IReLeaSE.evaluate(eval_dict, samples)
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
-                        tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        hscore = (2.0 * eval_score * percentage_in_threshold) / (eval_score + percentage_in_threshold)
-                        tracker.track('H-score', hscore, step_idx)
-                        exp_avg.update(hscore)
-                        if exp_avg.value >= best_score:  # hscore >= best_score:
+                        avg_len = np.nanmean([len(s) for s in samples])
+                        tracker.track('Average SMILES length', avg_len, step_idx)
+                        diversity = 0 if eval_score >= 0.2 else np.log(eval_score)
+                        smile_length = 0 if avg_len >= 20 else -np.exp(mean_preds)
+                        score = 2 * np.exp(mean_preds) + max(-np.exp(mean_preds), np.log(per_valid)) + max(
+                            -np.exp(mean_preds), diversity) + smile_length
+                        tracker.track('score', score, step_idx)
+                        exp_avg.update(mean_preds)
+                        if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
@@ -337,9 +348,10 @@ class IReLeaSE(Trainer):
                     trajectories.clear()
                     exp_trajectories.clear()
 
-        drl_algorithm.actor.load_state_dict(best_model_wts[0])
-        drl_algorithm.critic.load_state_dict(best_model_wts[1])
-        irl_algorithm.model.load_state_dict(best_model_wts[2])
+        if best_model_wts:
+            drl_algorithm.actor.load_state_dict(best_model_wts[0])
+            drl_algorithm.critic.load_state_dict(best_model_wts[1])
+            irl_algorithm.model.load_state_dict(best_model_wts[2])
         duration = time.time() - start
         print('\nTraining duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
         return {'model': [drl_algorithm.actor,
@@ -369,9 +381,6 @@ def main(flags):
     nodes_list = []
     sim_data.data = nodes_list
 
-    # For searching over multiple seeds
-    hparam_search = None
-
     for seed in seeds:
         summary_writer_creator = lambda: SummaryWriter(log_dir="irelease"
                                                                "/{}_{}_{}/".format(sim_label, seed, dt.now().strftime(
@@ -393,7 +402,42 @@ def main(flags):
         irelease = IReLeaSE()
         k = 1
         if flags.hparam_search:
-            pass
+            print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
+            # arguments to callables
+            extra_init_args = {}
+            extra_data_args = {'flags': flags}
+            extra_train_args = {'agent_net_path': flags.model_dir,
+                                'agent_net_name': flags.pretrained_model,
+                                'seed': seed,
+                                'n_episodes': 300,
+                                'is_hsearch': True,
+                                'tb_writer': summary_writer_creator}
+            hparams_conf = get_hparam_config(flags)
+            search_alg = {'random_search': RandomSearch,
+                          'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
+                                                                  BayesianOptSearch)
+            search_args = GPMinArgs(n_calls=20, random_state=seed)
+            hparam_search = search_alg(hparam_config=hparams_conf,
+                                       num_folds=1,
+                                       initializer=irelease.initialize,
+                                       data_provider=irelease.data_provider,
+                                       train_fn=irelease.train,
+                                       save_model_fn=irelease.save_model,
+                                       alg_args=search_args,
+                                       init_args=extra_init_args,
+                                       data_args=extra_data_args,
+                                       train_args=extra_train_args,
+                                       data_node=data_node,
+                                       split_label='ppo-rl',
+                                       sim_label=sim_label,
+                                       dataset_label=None,
+                                       results_file=f'{flags.hparam_search_alg}_{sim_label}'
+                                                    f'_{date_label}_seed_{seed}')
+            start = time.time()
+            stats = hparam_search.fit()
+            print(f'Duration = {time_since(start)}')
+            print(stats)
+            print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
             hyper_params = default_hparams(flags)
             data_gens = irelease.data_provider(k, flags)
@@ -467,7 +511,51 @@ def default_hparams(args):
 
 
 def get_hparam_config(args):
-    pass
+    return {'d_model': ConstantParam(1500),
+            'dropout': RealParam(min=0.),
+            'monte_carlo_N': ConstantParam(5),
+            'use_monte_carlo_sim': ConstantParam(True),
+            'no_mc_fill_val': ConstantParam(0.0),
+            'gamma': ConstantParam(0.97),
+            'episodes_to_train': DiscreteParam(min=5, max=20),
+            'gae_lambda': RealParam(0.9, max=0.999),
+            'ppo_eps': ConstantParam(0.2),
+            'ppo_batch': ConstantParam(1),
+            'ppo_epochs': DiscreteParam(2, max=10),
+            'use_true_reward': ConstantParam(args.use_true_reward),
+            'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
+                                        'd_model': DiscreteParam(min=128, max=1024),
+                                        'unit_type': ConstantParam('lstm'),
+                                        'demo_batch_size': CategoricalParam([64, 128, 256]),
+                                        'irl_alg_num_iter': DiscreteParam(2, max=10),
+                                        'use_attention': ConstantParam(False),
+                                        'bidirectional': ConstantParam(True),
+                                        'dropout': RealParam(),
+                                        'optimizer': CategoricalParam(
+                                            choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
+                                        'optimizer__global__weight_decay': LogRealParam(),
+                                        'optimizer__global__lr': LogRealParam()}),
+            'agent_params': DictParam({'unit_type': ConstantParam('gru'),
+                                       'num_layers': ConstantParam(2),
+                                       'stack_width': ConstantParam(1500),
+                                       'stack_depth': ConstantParam(200),
+                                       'optimizer': ConstantParam('adadelta'),
+                                       'optimizer__global__weight_decay': LogRealParam(),
+                                       'optimizer__global__lr': LogRealParam()}),
+            'critic_params': DictParam({'num_layers': ConstantParam(2),
+                                        'd_model': ConstantParam(256),
+                                        'dropout': RealParam(),
+                                        'unit_type': ConstantParam('lstm'),
+                                        'optimizer': ConstantParam('adadelta'),
+                                        'optimizer__global__weight_decay': LogRealParam(),
+                                        'optimizer__global__lr': LogRealParam()}),
+            'expert_model_params': DictParam({'model_dir': ConstantParam('./model_dir/expert_rnn_reg'),
+                                              'd_model': ConstantParam(128),
+                                              'rnn_num_layers': ConstantParam(2),
+                                              'dropout': ConstantParam(0.8),
+                                              'is_bidirectional': ConstantParam(False),
+                                              'unit_type': ConstantParam('lstm')})
+            }
 
 
 if __name__ == '__main__':
@@ -497,6 +585,10 @@ if __name__ == '__main__':
     parser.add_argument('--use_attention',
                         action='store_true',
                         help='Whether to use additive attention')
+    parser.add_argument('--use_true_reward',
+                        action='store_true',
+                        help='If true then no reward function would be learned but the true reward would be used.'
+                             'This requires that the explicit reward function is given.')
 
     args = parser.parse_args()
     flags = Flags()
