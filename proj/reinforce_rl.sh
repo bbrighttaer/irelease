@@ -1,1 +1,1 @@
-python reinforce_rl_logp.py --demo ../data/jak2_smiles_biased_max.txt --unbiased ../data/unbiased_smiles.smi --pretrained_model gpmt-pretrained_stack-rnn_gru_2020_04_27__09_02_19_0.7136737670968439_1.mod
+python reinforce_rl_logp.py --demo ../data/jak2_smiles_biased_max.txt --unbiased ../data/unbiased_smiles.smi --pretrained_model irelease-pretrained_stack-rnn_gru_2020_04_27__09_02_19_0.7136737670968439_1.mod

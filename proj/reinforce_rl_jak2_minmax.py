@@ -23,15 +23,16 @@ from soek import Trainer, DataNode
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from gpmt.data import GeneratorData
-from gpmt.env import MoleculeEnv
-from gpmt.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
-from gpmt.predictor import SVRPredictor, get_jak2_max_reward, get_jak2_min_reward
-from gpmt.reward import RewardFunction
-from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
+from irelease.data import GeneratorData
+from irelease.env import MoleculeEnv
+from irelease.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
+from irelease.predictor import SVRPredictor, get_jak2_max_reward, get_jak2_min_reward
+from irelease.reward import RewardFunction
+from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, REINFORCE, Trajectory, EpisodeStep
-from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, calculate_internal_diversity
+from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
+    time_since, generate_smiles
+from mol_metrics import calculate_internal_diversity
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")

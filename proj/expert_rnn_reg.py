@@ -25,9 +25,9 @@ from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-from gpmt.dataloader import load_smiles_data
-from gpmt.model import RNNPredictorModel
-from gpmt.utils import Flags, get_default_tokens, parse_optimizer, time_since, DummyException
+from irelease.dataloader import load_smiles_data
+from irelease.model import RNNPredictorModel
+from irelease.utils import Flags, get_default_tokens, parse_optimizer, time_since, DummyException
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")

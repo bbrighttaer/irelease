@@ -25,9 +25,9 @@ from soek.template import Trainer
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 
-from gpmt.data import GeneratorData
-from gpmt.model import Encoder, StackRNN, StackRNNLinear, StackedRNNLayerNorm, StackedRNNDropout
-from gpmt.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, init_hidden, init_cell, init_stack, \
+from irelease.data import GeneratorData
+from irelease.model import Encoder, StackRNN, StackRNNLinear, StackedRNNLayerNorm, StackedRNNDropout
+from irelease.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, init_hidden, init_cell, init_stack, \
     generate_smiles, time_since, get_default_tokens, canonical_smiles
 
 currentDT = dt.now()
@@ -351,7 +351,7 @@ def main(flags):
                                            results_file="{}_{}_gpmt_{}.csv".format(
                                                flags["hparam_search_alg"], sim_label, date_label))
 
-            stats = hparam_search.fit(model_dir="models", model_name='gpmt')
+            stats = hparam_search.fit(model_dir="models", model_name='irelease')
             print(stats)
             print("Best params = {}".format(stats.best()))
         else:
@@ -370,7 +370,7 @@ def main(flags):
                                         sim_data_node=data_node,
                                         tb_writer=summary_writer_creator)
                 trainer.save_model(results['model'], flags.model_dir,
-                                   name=f'gpmt-pretrained_stack-rnn_{hyper_params["unit_type"]}_'
+                                   name=f'irelease-pretrained_stack-rnn_{hyper_params["unit_type"]}_'
                                         f'{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.

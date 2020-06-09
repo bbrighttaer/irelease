@@ -23,8 +23,8 @@ from soek import Trainer, DataNode, CategoricalParam, RealParam, RandomSearch, \
 from soek.bopt import GPMinArgs
 from torch.utils.data import Dataset
 
-from gpmt.dataloader import load_smiles_data
-from gpmt.utils import Flags, time_since, get_fp
+from irelease.dataloader import load_smiles_data
+from irelease.utils import Flags, time_since, get_fp
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")

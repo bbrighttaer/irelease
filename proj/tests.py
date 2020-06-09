@@ -5,15 +5,14 @@ import torch
 from ptan.experience import ExperienceSourceFirstLast
 from tqdm import tqdm
 
-from gpmt.data import GeneratorData
-from gpmt.env import MoleculeEnv
-from gpmt.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear, RewardNetRNN
-from gpmt.reward import RewardFunction
-from gpmt.rl import PolicyAgent, MolEnvProbabilityActionSelector, REINFORCE, GuidedRewardLearningIRL, \
+from irelease.data import GeneratorData
+from irelease.env import MoleculeEnv
+from irelease.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear, RewardNetRNN
+from irelease.reward import RewardFunction
+from irelease.rl import PolicyAgent, MolEnvProbabilityActionSelector, REINFORCE, GuidedRewardLearningIRL, \
     StateActionProbRegistry
-from gpmt.stackrnn import StackRNNCell
-from gpmt.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d, init_cell, seq2tensor
-from proj.reinforcement import calc_Qvals
+from irelease.stackrnn import StackRNNCell
+from irelease.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d, init_cell, seq2tensor
 
 gen_data_path = '../data/chembl_xsmall.smi'
 tokens = get_default_tokens()

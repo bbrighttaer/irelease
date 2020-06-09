@@ -25,11 +25,11 @@ from soek.template import Trainer
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
 
-from gpmt.data import GeneratorData
-from gpmt.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionTerminal, \
+from irelease.data import GeneratorData
+from irelease.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionTerminal, \
     NonsatActivation, AttentionOptimizer, LinearOut, LabelSmoothing, get_std_opt
-from gpmt.tboard import TBMeanTracker
-from gpmt.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count, init_stack_2d, \
+from irelease.tboard import TBMeanTracker
+from irelease.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count, init_stack_2d, \
     time_since, generate_smiles
 
 currentDT = dt.now()
@@ -370,7 +370,7 @@ def main(flags):
                                            results_file="{}_{}_gpmt_{}.csv".format(
                                                flags["hparam_search_alg"], sim_label, date_label))
 
-            stats = hparam_search.fit(model_dir="models", model_name='gpmt')
+            stats = hparam_search.fit(model_dir="models", model_name='irelease')
             print(stats)
             print("Best params = {}".format(stats.best()))
         else:
@@ -386,7 +386,7 @@ def main(flags):
                                     sim_data_node=data_node,
                                     tb_writer=summary_writer_creator)
             trainer.save_model(results['model'], flags.model_dir,
-                               name=f'gpmt-pretrained_{date_label}_{results["score"]}_{results["epoch"]}')
+                               name=f'irelease-pretrained_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")

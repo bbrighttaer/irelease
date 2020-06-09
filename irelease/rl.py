@@ -16,7 +16,7 @@ from ptan.agent import BaseAgent
 from torch.optim.lr_scheduler import StepLR
 from tqdm import trange
 
-from gpmt.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles
+from irelease.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles
 
 EpisodeStep = namedtuple('EpisodeStep', ['state', 'action'])
 Trajectory = namedtuple('Trajectory', ['terminal_state', 'traj_prob'])

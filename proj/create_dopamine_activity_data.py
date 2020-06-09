@@ -11,9 +11,9 @@ import argparse
 
 from tqdm import trange
 
-from gpmt.data import GeneratorData
-from gpmt.utils import get_default_tokens
-from gpmt.drd2 import DRD2Model
+from irelease.data import GeneratorData
+from irelease.utils import get_default_tokens
+from irelease.drd2 import DRD2Model
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Creates activity dataset for dopamine receptor type 2 (DRD2)')

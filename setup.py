@@ -8,9 +8,9 @@
 from setuptools import setup
 
 setup(
-    name='gpmt',
+    name='irelease',
     version='0.0.0-1',
-    packages=['gpmt', 'proj'],
+    packages=['irelease', 'proj'],
     url='',
     license='',
     author='Brighter Agyemang',

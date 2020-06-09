@@ -24,9 +24,9 @@ from soek import Trainer, DataNode, CategoricalParam, DiscreteParam, RealParam, 
     BayesianOptSearch
 from tqdm import tqdm
 
-from gpmt.model import RNNPredictorModel
-from gpmt.dataloader import load_smiles_data
-from gpmt.utils import Flags, get_default_tokens, parse_optimizer, time_since, DummyException
+from irelease.model import RNNPredictorModel
+from irelease.dataloader import load_smiles_data
+from irelease.utils import Flags, get_default_tokens, parse_optimizer, time_since, DummyException
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")

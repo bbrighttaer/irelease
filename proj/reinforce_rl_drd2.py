@@ -19,29 +19,31 @@ import torch
 import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
-from soek import Trainer, DataNode
+from soek import Trainer, DataNode, RandomSearch, BayesianOptSearch, ConstantParam, RealParam, DiscreteParam, \
+    CategoricalParam, DictParam, LogRealParam
+from soek.bopt import GPMinArgs
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from irelease.data import GeneratorData
 from irelease.env import MoleculeEnv
 from irelease.model import Encoder, StackRNN, StackRNNLinear, \
-    CriticRNN, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
-from irelease.predictor import SVRPredictor, get_jak2_max_reward, get_jak2_min_reward
+    RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
+from irelease.predictor import get_drd2_activity_reward, RNNPredictor
 from irelease.reward import RewardFunction
 from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
-    StateActionProbRegistry, Trajectory, EpisodeStep, PPO
+    StateActionProbRegistry, Trajectory, EpisodeStep, REINFORCE
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, ExpAverage
-from mol_metrics import calculate_internal_diversity
+    time_since, generate_smiles, ExpAverage, DummyException, parse_hparams
+from mol_metrics import verify_sequence, get_mol_metrics
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [1]
+seeds = [71]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -97,7 +99,8 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
-        agent_net = agent_net.to(device)
+        with contextlib.suppress(Exception):
+            agent_net = agent_net.to(device)
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
         probs_reg = StateActionProbRegistry()
@@ -114,22 +117,16 @@ class IReLeaSE(Trainer):
                             apply_softmax=True,
                             probs_registry=probs_reg,
                             device=device)
-        critic = nn.Sequential(encoder,
-                               CriticRNN(hparams['d_model'], hparams['critic_params']['d_model'],
-                                         unit_type=hparams['critic_params']['unit_type'],
-                                         num_layers=hparams['critic_params']['num_layers']))
-        critic = critic.to(device)
-        optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
-        drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
-                      critic=critic, critic_opt=optimizer_critic_net,
-                      initial_states_func=agent_net_hidden_states_func,
-                      initial_states_args=init_state_args,
-                      device=device,
-                      gamma=hparams['gamma'],
-                      gae_lambda=hparams['gae_lambda'],
-                      ppo_eps=hparams['ppo_eps'],
-                      ppo_epochs=hparams['ppo_epochs'],
-                      ppo_batch=hparams['ppo_batch'])
+        drl_alg = REINFORCE(model=agent_net, optimizer=optimizer_agent_net,
+                            initial_states_func=agent_net_hidden_states_func,
+                            initial_states_args=init_state_args,
+                            prior_data_gen=prior_data_gen,
+                            device=device,
+                            xent_lambda=hparams['xent_lambda'],
+                            gamma=hparams['gamma'],
+                            grad_clipping=hparams['reinforce_max_norm'],
+                            lr_decay_gamma=hparams['lr_decay_gamma'],
+                            lr_decay_step=hparams['lr_decay_step_size'])
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -138,17 +135,17 @@ class IReLeaSE(Trainer):
                                                 num_layers=hparams['reward_params']['num_layers'],
                                                 bidirectional=hparams['reward_params']['bidirectional'],
                                                 use_attention=hparams['reward_params']['use_attention'],
-                                                dropout=hparams['dropout'],
+                                                dropout=hparams['reward_params']['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
-        reward_net = reward_net.to(device)
-        expert_model = SVRPredictor(hparams['expert_svr_dir'])
-        true_reward_func = get_jak2_max_reward if hparams['bias_mode'] == 'max' else get_jak2_min_reward
+        with contextlib.suppress(Exception):
+            reward_net = reward_net.to(device)
+        expert_model = RNNPredictor(hparams['expert_model_params'], device, True)
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
-                                         use_true_reward=hparams['use_true_reward'],
-                                         true_reward_func=true_reward_func,
                                          expert_func=expert_model,
+                                         use_true_reward=hparams['use_true_reward'],
+                                         true_reward_func=get_drd2_activity_reward,
                                          no_mc_fill_val=hparams['no_mc_fill_val'])
         optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         demo_data_gen.set_batch_size(hparams['reward_params']['demo_batch_size'])
@@ -183,9 +180,9 @@ class IReLeaSE(Trainer):
     def data_provider(k, flags):
         tokens = get_default_tokens()
         demo_data = GeneratorData(training_data_path=flags.demo_file,
-                                  delimiter='\t',
+                                  delimiter=',',
                                   cols_to_read=[0],
-                                  keep_header=True,
+                                  keep_header=False,
                                   pad_symbol=' ',
                                   max_len=120,
                                   tokens=tokens,
@@ -209,14 +206,20 @@ class IReLeaSE(Trainer):
         return {'demo_data': demo_data, 'unbiased_data': unbiased_data, 'prior_data': prior_data}
 
     @staticmethod
-    def evaluate(res_dict, generated_smiles):
-        div_score = calculate_internal_diversity(generated_smiles)
-        res_dict['internal diversity'] = div_score
-        return div_score
+    def evaluate(res_dict, generated_smiles, ref_smiles):
+        smiles = []
+        for s in generated_smiles:
+            if verify_sequence(s):
+                smiles.append(s)
+        mol_metrics = get_mol_metrics()
+        for metric in mol_metrics:
+            res_dict[metric] = mol_metrics[metric](smiles, ref_smiles)
+        score = res_dict['internal_diversity']
+        return score
 
     @staticmethod
-    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
-              tb_writer=None, is_hsearch=False, n_to_generate=200):
+    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500, sim_data_node=None,
+              tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -230,8 +233,8 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         best_score = 0.
-        exp_avg = ExpAverage(beta=0.6)
-        score_threshold = 6.68
+        score_exp_avg = ExpAverage(beta=0.6)
+        score_threshold = 0.8
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -255,9 +258,10 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
-        baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-        with contextlib.suppress():  # (TypeError):  # Mostly arises when generator is not generating valid SMILES
+        try:
+            reference_smiles = demo_data_gen.random_training_set_smiles(1000)
+            demo_score = np.mean(expert_model(reference_smiles)[1])
+            baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
                     exp_traj.append(exp)
@@ -286,34 +290,35 @@ class IReLeaSE(Trainer):
                             samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
-                        score = np.mean(predictions)
-                        try:
-                            percentage_in_threshold = np.sum((predictions >= score_threshold)) / len(predictions)
-                        except:
-                            percentage_in_threshold = 0.
+                        per_active = float(len([v for v in predictions if v >= 0.8])) / len(predictions)
+                        mean_preds = np.mean(predictions)
                         per_valid = len(predictions) / n_to_generate
-                        print(f'Mean value of predictions = {score}, % of valid SMILES = {per_valid}')
-                        tb_writer.add_scalars('qsar_score', {'sampled': score,
+                        print(f'Mean value of predictions = {mean_preds}, % of valid SMILES = {per_valid}')
+                        tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
                         tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
-                                                               'per. in drug-like region': percentage_in_threshold},
+                                                               'per. of actives': per_active},
                                               step_idx)
                         eval_dict = {}
-                        eval_score = IReLeaSE.evaluate(eval_dict, samples)
+                        eval_score = IReLeaSE.evaluate(eval_dict, samples, reference_smiles)
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
-                        tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        hscore = (2.0 * eval_score * score) / (eval_score + score)
-                        tracker.track('H-score', hscore, step_idx)
-                        exp_avg.update(score)
-                        if exp_avg.value >= score_threshold:  # hscore >= best_score:
-                            best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
-                                              copy.deepcopy(drl_algorithm.critic.state_dict()),
+                        avg_len = np.nanmean([len(s) for s in samples])
+                        tracker.track('Average SMILES length', avg_len, step_idx)
+                        diversity = 0 if eval_score >= 0.2 else np.log(eval_score)
+                        smile_length = 0 if avg_len >= 20 else -np.exp(mean_preds)
+                        score = 2 * np.exp(mean_preds) + max(-np.exp(mean_preds), np.log(per_valid)) + max(
+                            -np.exp(mean_preds), diversity) + smile_length
+                        tracker.track('score', score, step_idx)
+                        score_exp_avg.update(mean_preds)
+                        if score_exp_avg.value > best_score:
+                            best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = exp_avg.value
+                            best_score = score_exp_avg.value
+                        if is_hsearch and per_valid < 0.5:
+                            # best_score = 0.
                             break
-
                         if done_episodes == n_episodes:
                             print('Training completed!')
                             break
@@ -323,28 +328,30 @@ class IReLeaSE(Trainer):
 
                     # Train models
                     print('Fitting models...')
-                    irl_loss = irl_algorithm.fit(trajectories)
+                    irl_stmt = ''
+                    if learn_irl:
+                        irl_loss = irl_algorithm.fit(trajectories)
+                        tracker.track('irl_loss', irl_loss, step_idx)
+                        irl_stmt = f'IRL loss = {irl_loss}, '
                     rl_loss = drl_algorithm.fit(exp_trajectories)
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                               num_samples=3)
-                    print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
-                    tracker.track('irl_loss', irl_loss, step_idx)
-                    tracker.track('critic_loss', rl_loss[0], step_idx)
-                    tracker.track('agent_loss', rl_loss[1], step_idx)
+                    print(f'{irl_stmt}RL loss = {rl_loss}, samples = {samples}')
+                    tracker.track('agent_loss', rl_loss, step_idx)
 
                     # Reset
                     batch_episodes = 0
                     trajectories.clear()
                     exp_trajectories.clear()
+        except Exception if is_hsearch else DummyException:
+            best_score = 0.
 
-        drl_algorithm.actor.load_state_dict(best_model_wts[0])
-        drl_algorithm.critic.load_state_dict(best_model_wts[1])
-        irl_algorithm.model.load_state_dict(best_model_wts[2])
+        if best_model_wts:
+            drl_algorithm.model.load_state_dict(best_model_wts[0])
+            irl_algorithm.model.load_state_dict(best_model_wts[1])
         duration = time.time() - start
         print('\nTraining duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
-        return {'model': [drl_algorithm.actor,
-                          drl_algorithm.critic,
-                          irl_algorithm.model],
+        return {'model': [drl_algorithm.model, irl_algorithm.model],
                 'score': round(best_score, 3),
                 'epoch': done_episodes}
 
@@ -364,14 +371,10 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + flags.bias_mode + '_IReLeaSE-ppo_with_irl_' + (
-        'attn' if flags.use_attention else 'no_attn')
+    sim_label = flags.exp_name + '_IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
-
-    # For searching over multiple seeds
-    hparam_search = None
 
     for seed in seeds:
         summary_writer_creator = lambda: SummaryWriter(log_dir="irelease"
@@ -394,30 +397,62 @@ def main(flags):
         irelease = IReLeaSE()
         k = 1
         if flags.hparam_search:
-            pass
+            print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
+            # arguments to callables
+            extra_init_args = {}
+            extra_data_args = {'flags': flags}
+            extra_train_args = {'agent_net_path': flags.model_dir,
+                                'agent_net_name': flags.pretrained_model,
+                                'seed': seed,
+                                'n_episodes': 300,
+                                'is_hsearch': True,
+                                'tb_writer': summary_writer_creator}
+            hparams_conf = get_hparam_config(flags)
+            search_alg = {'random_search': RandomSearch,
+                          'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
+                                                                  BayesianOptSearch)
+            search_args = GPMinArgs(n_calls=20, random_state=seed)
+            hparam_search = search_alg(hparam_config=hparams_conf,
+                                       num_folds=1,
+                                       initializer=irelease.initialize,
+                                       data_provider=irelease.data_provider,
+                                       train_fn=irelease.train,
+                                       save_model_fn=irelease.save_model,
+                                       alg_args=search_args,
+                                       init_args=extra_init_args,
+                                       data_args=extra_data_args,
+                                       train_args=extra_train_args,
+                                       data_node=data_node,
+                                       split_label='ppo-rl',
+                                       sim_label=sim_label,
+                                       dataset_label=None,
+                                       results_file=f'{flags.hparam_search_alg}_{sim_label}'
+                                                    f'_{date_label}_seed_{seed}')
+            start = time.time()
+            stats = hparam_search.fit()
+            print(f'Duration = {time_since(start)}')
+            print(stats)
+            print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
-            hyper_params = default_hparams(flags)
+            hyper_params = parse_hparams(
+                file='bayopt_search_DRD2_activity_IReLeaSE-ppo_with_irl_no_attn_2020_06_06__00_28_35_gp.csv',
+                index=1)
+            # hyper_params =  default_hparams(flags)
             data_gens = irelease.data_provider(k, flags)
             init_args = irelease.initialize(hyper_params, data_gens['demo_data'], data_gens['unbiased_data'],
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=8000,
+                                     n_episodes=400,
+                                     learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
-                                     f'{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_ppo_agent_{date_label}_{results["score"]}_{results["epoch"]}')
+                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
+                                     f'_reinforce_agent_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
-                                     f'{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_ppo_critic_{date_label}_{results["score"]}_{results["epoch"]}')
-            irelease.save_model(results['model'][2],
-                                path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
-                                     f'{hyper_params["agent_params"]["unit_type"]}'
+                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
                                      f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
@@ -428,23 +463,21 @@ def default_hparams(args):
     return {'d_model': 1500,
             'dropout': 0.0,
             'monte_carlo_N': 5,
-            'use_monte_carlo_sim': True,
+            'use_monte_carlo_sim': False,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
             'episodes_to_train': 10,
-            'gae_lambda': 0.95,
-            'ppo_eps': 0.2,
-            'ppo_batch': 1,
-            'ppo_epochs': 5,
-            'bias_mode': args.bias_mode,
-            'expert_svr_dir': args.expert_dir,
+            'reinforce_max_norm': None,
+            'lr_decay_gamma': 0.1,
+            'lr_decay_step_size': 1000,
+            'xent_lambda': 0.0,
             'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 256,
                               'unit_type': 'lstm',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
-                              'use_attention': args.use_attention,
+                              'use_attention': True,
                               'bidirectional': True,
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.0000,
@@ -456,13 +489,7 @@ def default_hparams(args):
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.0000,
                              'optimizer__global__lr': 0.001},
-            'critic_params': {'num_layers': 2,
-                              'd_model': 256,
-                              'unit_type': 'lstm',
-                              'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.00005,
-                              'optimizer__global__lr': 0.001},
-            'expert_model_params': {'model_dir': './model_dir/expert_svr',
+            'expert_model_params': {'model_dir': './model_dir/expert',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,
                                     'dropout': 0.8,
@@ -472,7 +499,44 @@ def default_hparams(args):
 
 
 def get_hparam_config(args):
-    pass
+    return {'d_model': ConstantParam(1500),
+            'dropout': RealParam(min=0.),
+            'monte_carlo_N': ConstantParam(5),
+            'use_monte_carlo_sim': ConstantParam(True),
+            'no_mc_fill_val': ConstantParam(0.0),
+            'gamma': ConstantParam(0.97),
+            'episodes_to_train': DiscreteParam(min=5, max=20),
+            'reinforce_max_norm': ConstantParam(None),
+            'lr_decay_gamma': RealParam(),
+            'lr_decay_step_size': DiscreteParam(min=100, max=1000),
+            'xent_lambda': ConstantParam(0.0),
+            'use_true_reward': ConstantParam(args.use_true_reward),
+            'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
+                                        'd_model': DiscreteParam(min=128, max=1024),
+                                        'unit_type': ConstantParam('lstm'),
+                                        'demo_batch_size': CategoricalParam([64, 128, 256]),
+                                        'irl_alg_num_iter': DiscreteParam(2, max=10),
+                                        'use_attention': ConstantParam(False),
+                                        'bidirectional': ConstantParam(True),
+                                        'dropout': RealParam(),
+                                        'optimizer': CategoricalParam(
+                                            choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
+                                        'optimizer__global__weight_decay': LogRealParam(),
+                                        'optimizer__global__lr': LogRealParam()}),
+            'agent_params': DictParam({'unit_type': ConstantParam('gru'),
+                                       'num_layers': ConstantParam(2),
+                                       'stack_width': ConstantParam(1500),
+                                       'stack_depth': ConstantParam(200),
+                                       'optimizer': ConstantParam('adadelta'),
+                                       'optimizer__global__weight_decay': LogRealParam(),
+                                       'optimizer__global__lr': LogRealParam()}),
+            'expert_model_params': DictParam({'model_dir': ConstantParam('./model_dir/expert_rnn_bin'),
+                                              'd_model': ConstantParam(128),
+                                              'rnn_num_layers': ConstantParam(2),
+                                              'dropout': ConstantParam(0.8),
+                                              'is_bidirectional': ConstantParam(True),
+                                              'unit_type': ConstantParam('lstm')})
+            }
 
 
 if __name__ == '__main__':
@@ -502,10 +566,6 @@ if __name__ == '__main__':
     parser.add_argument('--use_attention',
                         action='store_true',
                         help='Whether to use additive attention')
-    parser.add_argument('--expert_dir', type=str, default='./model_dir/expert_svr',
-                        help='The directory containing SVR model(s) to predict JAK2 pIC50')
-    parser.add_argument('--bias_mode', type=str, choices=['min', 'max'], default='max',
-                        help='The generator biasing objective')
     parser.add_argument('--use_true_reward',
                         action='store_true',
                         help='If true then no reward function would be learned but the true reward would be used.'

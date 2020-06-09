@@ -25,16 +25,17 @@ from soek.bopt import GPMinArgs
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from gpmt.data import GeneratorData
-from gpmt.env import MoleculeEnv
-from gpmt.model import Encoder, StackRNN, StackRNNLinear, \
+from irelease.data import GeneratorData
+from irelease.env import MoleculeEnv
+from irelease.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
-from gpmt.predictor import RNNPredictor, get_logp_reward
-from gpmt.reward import RewardFunction
-from gpmt.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
+from irelease.predictor import RNNPredictor, get_logp_reward
+from irelease.reward import RewardFunction
+from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
-from gpmt.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, calculate_internal_diversity, ExpAverage, DummyException
+from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
+    time_since, generate_smiles, ExpAverage, DummyException
+from mol_metrics import verify_sequence, get_mol_metrics
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -213,14 +214,20 @@ class IReLeaSE(Trainer):
         return {'demo_data': demo_data, 'unbiased_data': unbiased_data, 'prior_data': prior_data}
 
     @staticmethod
-    def evaluate(res_dict, generated_smiles):
-        div_score = calculate_internal_diversity(generated_smiles)
-        res_dict['internal diversity'] = div_score
-        return div_score
+    def evaluate(res_dict, generated_smiles, ref_smiles):
+        smiles = []
+        for s in generated_smiles:
+            if verify_sequence(s):
+                smiles.append(s)
+        mol_metrics = get_mol_metrics()
+        for metric in mol_metrics:
+            res_dict[metric] = mol_metrics[metric](smiles, ref_smiles)
+        score = res_dict['internal_diversity']
+        return score
 
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500, sim_data_node=None,
-              tb_writer=None, is_hsearch=False, n_to_generate=200):
+              tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -259,7 +266,8 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
+        reference_smiles = demo_data_gen.random_training_set_smiles(1000)
+        demo_score = np.mean(expert_model(reference_smiles)[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
         with contextlib.suppress(Exception if is_hsearch else DummyException):
             with TBMeanTracker(tb_writer, 1) as tracker:
@@ -307,7 +315,7 @@ class IReLeaSE(Trainer):
                                                                'per. in drug-like region': percentage_in_threshold},
                                               step_idx)
                         eval_dict = {}
-                        eval_score = IReLeaSE.evaluate(eval_dict, samples)
+                        eval_score = IReLeaSE.evaluate(eval_dict, samples, reference_smiles)
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         avg_len = np.nanmean([len(s) for s in samples])
@@ -446,6 +454,7 @@ def main(flags):
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
                                      n_episodes=500,
+                                     learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,

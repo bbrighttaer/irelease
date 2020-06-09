@@ -12,9 +12,9 @@ import rdkit.Chem as Chem
 import torch
 from tqdm import tqdm
 
-from gpmt.drd2 import DRD2Model
-from gpmt.model import RNNPredictorModel
-from gpmt.utils import get_default_tokens, get_fp
+from irelease.drd2 import DRD2Model
+from irelease.model import RNNPredictorModel
+from irelease.utils import get_default_tokens, get_fp
 
 
 class Predictor:
