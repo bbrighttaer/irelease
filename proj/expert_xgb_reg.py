@@ -29,7 +29,7 @@ from irelease.utils import time_since, SmilesDataset
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [1, 8, 64]
+seeds = [1]
 
 
 class XGBExpert(Trainer):
@@ -220,12 +220,12 @@ def default_hparams(flags, seed):
         'seed': seed,
         'objective': 'reg:squarederror',
         'max_depth': 10,
-        'subsample': 1.0,
-        'colsample_bytree': .5,
-        'n_estimators': 50,
-        'gamma': .1,
-        'reg_lambda': 0.7427012361969033,
-        'learning_rate': 0.1078028400493326,
+        'subsample': 0.9662786796693295,
+        'colsample_bytree': 0.5640622239646784,
+        'n_estimators': 200,
+        'gamma': 0.3124800792567785,
+        'reg_lambda': 0.45692265456642367,
+        'learning_rate': 0.0035615821384587594,
     }
 
 
