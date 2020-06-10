@@ -517,7 +517,7 @@ class GradStats(object):
 
 
 def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>', max_len=100, num_samples=5,
-                    gen_type='rnn', is_train=True, verbose=False):
+                    gen_type='rnn', is_train=True, return_probs=False, verbose=False):
     """
     Generates SMILES strings using the model/generator given.
 
@@ -588,6 +588,7 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
         loop = trange(max_len - 1, desc='Generating SMILES...')
     else:
         loop = range(max_len - 1)
+    probs_out = []
     for i in loop:
         if gen_type == 'rnn':
             outputs = generator([inp] + hidden_states)
@@ -602,6 +603,7 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
 
         # Sample the next character from the generator
         probs = torch.softmax(output.view(-1, output.shape[-1]), dim=-1).detach()
+        probs_out.append(probs)
         top_i = torch.multinomial(probs, 1).cpu().numpy()
 
         # Add predicated character to string and use as next input.
@@ -634,6 +636,9 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
             string_samples.append(''.join(sample[1:end_token_idx]))
         else:
             string_samples.append(''.join(sample[1:]))
+    probs_out = torch.cat(probs_out).cpu().numpy()
+    if return_probs:
+        return string_samples, probs_out
     return string_samples
 
 

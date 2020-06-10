@@ -585,7 +585,7 @@ class RewardNetRNN(nn.Module):
             lin_dim = hidden_size
         self.reward_net = nn.Linear(lin_dim + 1 if self.v_flag else 0, 1)
 
-    def forward(self, inp):
+    def forward(self, inp, return_logits=False):
         """
         Evaluates the input to determine its reward.
 
@@ -627,9 +627,12 @@ class RewardNetRNN(nn.Module):
             rw_x = hidden_[0] if self.has_cell else hidden_
         else:
             rw_x = output[-1]
+        logits = rw_x
         if self.v_flag:
             rw_x = torch.cat([rw_x, inp[-1]], dim=-1)
         reward = self.reward_net(rw_x)
+        if return_logits:
+            return reward, logits
         return reward
 
 
