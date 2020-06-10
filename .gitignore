@@ -69,6 +69,7 @@ out/
 
 # Tensorboard stuff
 proj/irelease/
+irelease_tb/
 
 rf_qsar/
 qsar_rf-*/

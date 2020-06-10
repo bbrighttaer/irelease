@@ -28,13 +28,13 @@ from tqdm import tqdm
 from irelease.data import GeneratorData
 from irelease.env import MoleculeEnv
 from irelease.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
-from irelease.predictor import SVRPredictor, get_jak2_max_reward, get_jak2_min_reward, XGBPredictor
+from irelease.mol_metrics import verify_sequence, get_mol_metrics
+from irelease.predictor import get_jak2_max_reward, get_jak2_min_reward, XGBPredictor
 from irelease.reward import RewardFunction
 from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, REINFORCE, Trajectory, EpisodeStep
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, DummyException
-from irelease.mol_metrics import verify_sequence, get_mol_metrics
+    time_since, generate_smiles, DummyException, ExpAverage
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -217,7 +217,7 @@ class IReLeaSE(Trainer):
         return score
 
     @staticmethod
-    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
+    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500, sim_data_node=None,
               tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
@@ -231,7 +231,8 @@ class IReLeaSE(Trainer):
         demo_data_gen = init_args['demo_data_gen']
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
-        best_score = -10
+        best_score = 0.
+        exp_avg = ExpAverage(beta=0.6)
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -306,12 +307,11 @@ class IReLeaSE(Trainer):
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        hscore = (2.0 * eval_score * score) / (eval_score + score)
-                        tracker.track('H-score', hscore, step_idx)
-                        if mean_rewards > best_score:
+                        exp_avg.update(score)
+                        if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = mean_rewards
+                            best_score = exp_avg.value
 
                         if done_episodes == n_episodes:
                             print('Training completed!')
@@ -363,7 +363,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + flags.bias_mode + '_IReLeaSE-REINFORCE_' + (
+    sim_label = flags.exp_name + '_' + flags.bias_mode + '_IReLeaSE-REINFORCE_' + (
         'no_irl' if flags.use_true_reward else 'with_irl')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
@@ -390,13 +390,13 @@ def main(flags):
         irelease = IReLeaSE()
         k = 1
         if flags.hparam_search:
-
             print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
             # arguments to callables
             extra_init_args = {}
             extra_data_args = {'flags': flags}
             extra_train_args = {'agent_net_path': flags.model_dir,
                                 'agent_net_name': flags.pretrained_model,
+                                'learn_irl': not flags.use_true_reward,
                                 'seed': seed,
                                 'n_episodes': 300,
                                 'is_hsearch': True,
@@ -478,7 +478,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
+                             'num_layers': 2,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',

@@ -19,7 +19,9 @@ import torch
 import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
-from soek import Trainer, DataNode
+from soek import Trainer, DataNode, RandomSearch, BayesianOptSearch, ConstantParam, RealParam, DiscreteParam, DictParam, \
+    CategoricalParam, LogRealParam
+from soek.bopt import GPMinArgs
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -27,13 +29,13 @@ from irelease.data import GeneratorData
 from irelease.env import MoleculeEnv
 from irelease.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
-from irelease.predictor import SVRPredictor, get_jak2_max_reward, get_jak2_min_reward
+from irelease.mol_metrics import verify_sequence, get_mol_metrics
+from irelease.predictor import get_jak2_max_reward, get_jak2_min_reward, XGBPredictor
 from irelease.reward import RewardFunction
 from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, ExpAverage
-from irelease.mol_metrics import verify_sequence, get_mol_metrics
+    time_since, generate_smiles, ExpAverage, DummyException
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -141,7 +143,8 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type']))
         reward_net = reward_net.to(device)
-        expert_model = SVRPredictor(hparams['expert_svr_dir'])
+
+        expert_model = XGBPredictor(hparams['expert_model_dir'])
         true_reward_func = get_jak2_max_reward if hparams['bias_mode'] == 'max' else get_jak2_min_reward
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
@@ -209,13 +212,19 @@ class IReLeaSE(Trainer):
         return {'demo_data': demo_data, 'unbiased_data': unbiased_data, 'prior_data': prior_data}
 
     @staticmethod
-    def evaluate(res_dict, generated_smiles):
-        div_score = calculate_internal_diversity(generated_smiles)
-        res_dict['internal diversity'] = div_score
-        return div_score
+    def evaluate(res_dict, generated_smiles, ref_smiles):
+        smiles = []
+        for s in generated_smiles:
+            if verify_sequence(s):
+                smiles.append(s)
+        mol_metrics = get_mol_metrics()
+        for metric in mol_metrics:
+            res_dict[metric] = np.mean(mol_metrics[metric](smiles, ref_smiles))
+        score = res_dict['internal_diversity']
+        return score
 
     @staticmethod
-    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
+    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500, sim_data_node=None,
               tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
@@ -257,7 +266,7 @@ class IReLeaSE(Trainer):
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-        with contextlib.suppress():  # (TypeError):  # Mostly arises when generator is not generating valid SMILES
+        with contextlib.suppress(Exception if is_hsearch else DummyException):
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
                     exp_traj.append(exp)
@@ -300,19 +309,17 @@ class IReLeaSE(Trainer):
                                                                'per. in drug-like region': percentage_in_threshold},
                                               step_idx)
                         eval_dict = {}
-                        eval_score = IReLeaSE.evaluate(eval_dict, samples)
+                        eval_score = IReLeaSE.evaluate(eval_dict, samples,
+                                                       demo_data_gen.random_training_set_smiles(1000))
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        hscore = (2.0 * eval_score * score) / (eval_score + score)
-                        tracker.track('H-score', hscore, step_idx)
                         exp_avg.update(score)
-                        if exp_avg.value >= score_threshold:  # hscore >= best_score:
+                        if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-                            break
 
                         if done_episodes == n_episodes:
                             print('Training completed!')
@@ -337,9 +344,10 @@ class IReLeaSE(Trainer):
                     trajectories.clear()
                     exp_trajectories.clear()
 
-        drl_algorithm.actor.load_state_dict(best_model_wts[0])
-        drl_algorithm.critic.load_state_dict(best_model_wts[1])
-        irl_algorithm.model.load_state_dict(best_model_wts[2])
+        if best_model_wts:
+            drl_algorithm.actor.load_state_dict(best_model_wts[0])
+            drl_algorithm.critic.load_state_dict(best_model_wts[1])
+            irl_algorithm.model.load_state_dict(best_model_wts[2])
         duration = time.time() - start
         print('\nTraining duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
         return {'model': [drl_algorithm.actor,
@@ -364,7 +372,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + flags.bias_mode + '_IReLeaSE-ppo_with_irl_' + (
+    sim_label = flags.exp_name + '_' + flags.bias_mode + '_IReLeaSE-ppo_with_irl_' + (
         'attn' if flags.use_attention else 'no_attn')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
@@ -391,7 +399,43 @@ def main(flags):
         irelease = IReLeaSE()
         k = 1
         if flags.hparam_search:
-            pass
+            print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
+            # arguments to callables
+            extra_init_args = {}
+            extra_data_args = {'flags': flags}
+            extra_train_args = {'agent_net_path': flags.model_dir,
+                                'agent_net_name': flags.pretrained_model,
+                                'learn_irl': not flags.use_true_reward,
+                                'seed': seed,
+                                'n_episodes': 300,
+                                'is_hsearch': True,
+                                'tb_writer': summary_writer_creator}
+            hparams_conf = get_hparam_config(flags)
+            search_alg = {'random_search': RandomSearch,
+                          'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
+                                                                  BayesianOptSearch)
+            search_args = GPMinArgs(n_calls=20, random_state=seed)
+            hparam_search = search_alg(hparam_config=hparams_conf,
+                                       num_folds=1,
+                                       initializer=irelease.initialize,
+                                       data_provider=irelease.data_provider,
+                                       train_fn=irelease.train,
+                                       save_model_fn=irelease.save_model,
+                                       alg_args=search_args,
+                                       init_args=extra_init_args,
+                                       data_args=extra_data_args,
+                                       train_args=extra_train_args,
+                                       data_node=data_node,
+                                       split_label='ppo-rl',
+                                       sim_label=sim_label,
+                                       dataset_label=None,
+                                       results_file=f'{flags.hparam_search_alg}_{sim_label}'
+                                                    f'_{date_label}_seed_{seed}')
+            start = time.time()
+            stats = hparam_search.fit()
+            print(f'Duration = {time_since(start)}')
+            print(stats)
+            print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
             hyper_params = default_hparams(flags)
             data_gens = irelease.data_provider(k, flags)
@@ -447,7 +491,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
+                             'num_layers': 2,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
@@ -459,17 +503,51 @@ def default_hparams(args):
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001},
-            'expert_model_params': {'model_dir': './model_dir/expert_svr',
-                                    'd_model': 128,
-                                    'rnn_num_layers': 2,
-                                    'dropout': 0.8,
-                                    'is_bidirectional': False,
-                                    'unit_type': 'lstm'}
+            'expert_model_dir': './model_dir/expert_xgb_reg'
             }
 
 
 def get_hparam_config(args):
-    pass
+    return {'d_model': ConstantParam(1500),
+            'dropout': RealParam(min=0.),
+            'monte_carlo_N': ConstantParam(5),
+            'use_monte_carlo_sim': ConstantParam(True),
+            'no_mc_fill_val': ConstantParam(0.0),
+            'gamma': ConstantParam(0.97),
+            'episodes_to_train': DiscreteParam(min=5, max=20),
+            'gae_lambda': RealParam(0.9, max=0.999),
+            'ppo_eps': ConstantParam(0.2),
+            'ppo_batch': ConstantParam(1),
+            'ppo_epochs': DiscreteParam(2, max=10),
+            'use_true_reward': ConstantParam(args.use_true_reward),
+            'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
+                                        'd_model': DiscreteParam(min=128, max=1024),
+                                        'unit_type': ConstantParam('lstm'),
+                                        'demo_batch_size': CategoricalParam([64, 128, 256]),
+                                        'irl_alg_num_iter': DiscreteParam(2, max=10),
+                                        'use_attention': ConstantParam(False),
+                                        'bidirectional': ConstantParam(True),
+                                        'dropout': RealParam(),
+                                        'optimizer': CategoricalParam(
+                                            choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
+                                        'optimizer__global__weight_decay': LogRealParam(),
+                                        'optimizer__global__lr': LogRealParam()}),
+            'agent_params': DictParam({'unit_type': ConstantParam('gru'),
+                                       'num_layers': ConstantParam(2),
+                                       'stack_width': ConstantParam(1500),
+                                       'stack_depth': ConstantParam(200),
+                                       'optimizer': ConstantParam('adadelta'),
+                                       'optimizer__global__weight_decay': LogRealParam(),
+                                       'optimizer__global__lr': LogRealParam()}),
+            'critic_params': DictParam({'num_layers': ConstantParam(2),
+                                        'd_model': ConstantParam(256),
+                                        'dropout': RealParam(),
+                                        'unit_type': ConstantParam('lstm'),
+                                        'optimizer': ConstantParam('adadelta'),
+                                        'optimizer__global__weight_decay': LogRealParam(),
+                                        'optimizer__global__lr': LogRealParam()}),
+            'expert_model_dir': ConstantParam('./model_dir/expert_xgb_reg')
+            }
 
 
 if __name__ == '__main__':

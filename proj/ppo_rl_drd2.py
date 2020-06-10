@@ -412,6 +412,7 @@ def main(flags):
             extra_data_args = {'flags': flags}
             extra_train_args = {'agent_net_path': flags.model_dir,
                                 'agent_net_name': flags.pretrained_model,
+                                'learn_irl': not flags.use_true_reward,
                                 'seed': seed,
                                 'n_episodes': 300,
                                 'is_hsearch': True,

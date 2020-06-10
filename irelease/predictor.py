@@ -11,6 +11,7 @@ import numpy as np
 import rdkit.Chem as Chem
 import torch
 from tqdm import tqdm
+from xgboost import DMatrix
 
 from irelease.drd2 import DRD2Model
 from irelease.model import RNNPredictorModel
@@ -143,8 +144,53 @@ class SVRPredictor(Predictor):
         return canonical_smiles, prediction, invalid_smiles
 
 
-class XGBPredictor(SVRPredictor):
-    pass
+class XGBPredictor(Predictor):
+    def __init__(self, expert_model_dir):
+        assert (os.path.isdir(expert_model_dir)), 'Expert model(s) should be in a dedicated folder'
+        self.models = []
+        model_paths = os.listdir(expert_model_dir)
+        self.transformer = None
+        for model_file in model_paths:
+            if 'transformer' in model_file:
+                with open(os.path.join(expert_model_dir, model_file), 'rb') as f:
+                    self.transformer = joblib.load(f)
+                    continue
+            with open(os.path.join(expert_model_dir, model_file), 'rb') as f:
+                model = joblib.load(f)
+                self.models.append(model)
+
+    def predict(self, smiles, get_features=get_fp, use_tqdm=False):
+        canonical_smiles = []
+        invalid_smiles = []
+        if use_tqdm:
+            pbar = tqdm(range(len(smiles)))
+        else:
+            pbar = range(len(smiles))
+        for i in pbar:
+            sm = smiles[i]
+            if use_tqdm:
+                pbar.set_description("Calculating predictions...")
+            try:
+                sm = Chem.MolToSmiles(Chem.MolFromSmiles(sm, sanitize=False))
+                if len(sm) == 0:
+                    invalid_smiles.append(sm)
+                else:
+                    canonical_smiles.append(sm)
+            except:
+                invalid_smiles.append(sm)
+        if len(canonical_smiles) == 0:
+            return canonical_smiles, [], invalid_smiles
+        prediction = []
+        x, _, _ = get_features(canonical_smiles, sanitize=False)
+        x = DMatrix(x)
+        for i in range(len(self.models)):
+            y_pred = self.models[i].predict(x)
+            if self.transformer is not None:
+                y_pred = self.transformer.inverse_transform(y_pred)
+            prediction.append(y_pred)
+        prediction = np.array(prediction)
+        prediction = np.mean(prediction, axis=0)
+        return canonical_smiles, prediction, invalid_smiles
 
 
 class SVCPredictor(Predictor):
