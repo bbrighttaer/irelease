@@ -131,7 +131,8 @@ class IReLeaSE(Trainer):
                       gae_lambda=hparams['gae_lambda'],
                       ppo_eps=hparams['ppo_eps'],
                       ppo_epochs=hparams['ppo_epochs'],
-                      ppo_batch=hparams['ppo_batch'])
+                      ppo_batch=hparams['ppo_batch'],
+                      entropy_beta=hparams['entropy_beta'])
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -491,6 +492,7 @@ def default_hparams(args):
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 5,
+            'entropy_beta': 0.01,
             'bias_mode': args.bias_mode,
             'expert_svr_dir': args.expert_dir,
             'use_true_reward': args.use_true_reward,
@@ -534,6 +536,7 @@ def get_hparam_config(args):
             'ppo_eps': ConstantParam(0.2),
             'ppo_batch': ConstantParam(1),
             'ppo_epochs': DiscreteParam(2, max=10),
+            'entropy_beta': LogRealParam(),
             'use_true_reward': ConstantParam(args.use_true_reward),
             'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
                                         'd_model': DiscreteParam(min=128, max=1024),

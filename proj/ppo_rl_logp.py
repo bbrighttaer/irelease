@@ -134,7 +134,8 @@ class IReLeaSE(Trainer):
                       gae_lambda=hparams['gae_lambda'],
                       ppo_eps=hparams['ppo_eps'],
                       ppo_epochs=hparams['ppo_epochs'],
-                      ppo_batch=hparams['ppo_batch'])
+                      ppo_batch=hparams['ppo_batch'],
+                      entropy_beta=hparams['entropy_beta'])
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -490,17 +491,18 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 15,
+    return {'d_model': 1500,
             'dropout': 0.0,
             'monte_carlo_N': 5,
             'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 2,
+            'episodes_to_train': 10,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 5,
+            'entroyp_beta': 0.01,
             'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 512,
@@ -516,7 +518,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 15,
+                             'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.0000,
@@ -549,6 +551,7 @@ def get_hparam_config(args):
             'ppo_eps': ConstantParam(0.2),
             'ppo_batch': ConstantParam(1),
             'ppo_epochs': DiscreteParam(2, max=10),
+            'entropy_beta': LogRealParam(),
             'use_true_reward': ConstantParam(args.use_true_reward),
             'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
                                         'd_model': DiscreteParam(min=128, max=1024),
