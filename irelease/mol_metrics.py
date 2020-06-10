@@ -371,7 +371,7 @@ def batch_internal_diversity(smiles, set_smiles=None):
     rand_mols = [Chem.MolFromSmiles(s) for s in smiles]
     fps = [AllChem.GetMorganFingerprintAsBitVect(m, 4, nBits=2048) for m in rand_mols]
     vals = [bulk_tanimoto_distance(s, fps) if verify_sequence(s) else 0.0 for s in smiles]
-    return np.mean(vals)
+    return vals
 
 
 def bulk_tanimoto_distance(smile, fps):

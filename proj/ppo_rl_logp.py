@@ -29,13 +29,13 @@ from irelease.data import GeneratorData
 from irelease.env import MoleculeEnv
 from irelease.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
+from irelease.mol_metrics import verify_sequence, get_mol_metrics
 from irelease.predictor import RNNPredictor, get_logp_reward
 from irelease.reward import RewardFunction
 from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles, ExpAverage, DummyException
-from mol_metrics import verify_sequence, get_mol_metrics
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -221,7 +221,7 @@ class IReLeaSE(Trainer):
                 smiles.append(s)
         mol_metrics = get_mol_metrics()
         for metric in mol_metrics:
-            res_dict[metric] = mol_metrics[metric](smiles, ref_smiles)
+            res_dict[metric] = np.mean(mol_metrics[metric](smiles, ref_smiles))
         score = res_dict['internal_diversity']
         return score
 
@@ -266,8 +266,7 @@ class IReLeaSE(Trainer):
         traj_prob = 1.
         exp_traj = []
 
-        reference_smiles = demo_data_gen.random_training_set_smiles(1000)
-        demo_score = np.mean(expert_model(reference_smiles)[1])
+        demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
         with contextlib.suppress(Exception if is_hsearch else DummyException):
             with TBMeanTracker(tb_writer, 1) as tracker:
@@ -315,7 +314,8 @@ class IReLeaSE(Trainer):
                                                                'per. in drug-like region': percentage_in_threshold},
                                               step_idx)
                         eval_dict = {}
-                        eval_score = IReLeaSE.evaluate(eval_dict, samples, reference_smiles)
+                        eval_score = IReLeaSE.evaluate(eval_dict, samples,
+                                                       demo_data_gen.random_training_set_smiles(1000))
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         avg_len = np.nanmean([len(s) for s in samples])
@@ -342,7 +342,7 @@ class IReLeaSE(Trainer):
 
                     # Train models
                     print('Fitting models...')
-                    irl_loss = irl_algorithm.fit(trajectories)
+                    irl_loss = irl_algorithm.fit(trajectories) if learn_irl else 0.
                     rl_loss = drl_algorithm.fit(exp_trajectories)
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                               num_samples=3)
@@ -390,7 +390,7 @@ def main(flags):
     sim_data.data = nodes_list
 
     for seed in seeds:
-        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease"
+        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease_tb"
                                                                "/{}_{}_{}/".format(sim_label, seed, dt.now().strftime(
             "%Y_%m_%d__%H_%M_%S")))
 

@@ -32,7 +32,7 @@ from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewa
     StateActionProbRegistry, REINFORCE, Trajectory, EpisodeStep
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles
-from mol_metrics import calculate_internal_diversity
+from irelease.mol_metrics import verify_sequence, get_mol_metrics
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -362,7 +362,7 @@ def main(flags):
     hparam_search = None
 
     for seed in seeds:
-        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease"
+        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease_tb"
                                                                "/{}_{}_{}/".format(sim_label, seed, dt.now().strftime(
             "%Y_%m_%d__%H_%M_%S")))
 
@@ -390,7 +390,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=8000,
+                                     n_episodes=500,
                                      learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],

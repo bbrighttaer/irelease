@@ -33,7 +33,7 @@ from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewa
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles, ExpAverage
-from mol_metrics import calculate_internal_diversity
+from irelease.mol_metrics import verify_sequence, get_mol_metrics
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -216,7 +216,7 @@ class IReLeaSE(Trainer):
 
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=5000, sim_data_node=None,
-              tb_writer=None, is_hsearch=False, n_to_generate=200):
+              tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -323,7 +323,7 @@ class IReLeaSE(Trainer):
 
                     # Train models
                     print('Fitting models...')
-                    irl_loss = irl_algorithm.fit(trajectories)
+                    irl_loss = irl_algorithm.fit(trajectories) if learn_irl else 0.
                     rl_loss = drl_algorithm.fit(exp_trajectories)
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                               num_samples=3)
@@ -370,11 +370,8 @@ def main(flags):
     nodes_list = []
     sim_data.data = nodes_list
 
-    # For searching over multiple seeds
-    hparam_search = None
-
     for seed in seeds:
-        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease"
+        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease_tb"
                                                                "/{}_{}_{}/".format(sim_label, seed, dt.now().strftime(
             "%Y_%m_%d__%H_%M_%S")))
 
@@ -402,7 +399,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=8000,
+                                     n_episodes=500,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
