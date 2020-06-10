@@ -125,7 +125,7 @@ def main(flags):
 
     # Load the data
     data_dict, transformer = load_smiles_data(flags.data_file, flags.cv, normalize_y=True, k=flags.folds, shuffle=5,
-                                              create_val=True, train_size=.8, index_col=None)
+                                              create_val=True, train_size=.7, index_col=None)
 
     for seed in seeds:
         data_node = DataNode(label="seed_%d" % seed)
