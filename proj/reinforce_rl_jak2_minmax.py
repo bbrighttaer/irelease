@@ -241,6 +241,16 @@ class IReLeaSE(Trainer):
             agent.model.load_state_dict(IReLeaSE.load_model(agent_net_path, agent_net_name))
             print('Pretrained model loaded successfully!')
 
+        # collect mean predictions
+        unbiased_smiles_mean_pred, biased_smiles_mean_pred, gen_smiles_mean_pred = [], [], []
+        unbiased_smiles_mean_pred_data_node = DataNode('baseline_mean_vals', unbiased_smiles_mean_pred)
+        biased_smiles_mean_pred_data_node = DataNode('biased_mean_vals', biased_smiles_mean_pred)
+        gen_smiles_mean_pred_data_node = DataNode('gen_mean_vals', gen_smiles_mean_pred)
+        if sim_data_node:
+            sim_data_node.data = [unbiased_smiles_mean_pred_data_node,
+                                  biased_smiles_mean_pred_data_node,
+                                  gen_smiles_mean_pred_data_node]
+
         start = time.time()
 
         # Begin simulation and training
@@ -295,6 +305,9 @@ class IReLeaSE(Trainer):
                         print(f'Mean value of predictions = {score}, '
                               f'% of valid SMILES = {per_valid}, '
                               f'% in drug-like region={percentage_in_threshold}')
+                        unbiased_smiles_mean_pred.append(baseline_score)
+                        biased_smiles_mean_pred.append(demo_score)
+                        gen_smiles_mean_pred.append(score)
                         tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)

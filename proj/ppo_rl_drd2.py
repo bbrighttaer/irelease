@@ -244,6 +244,16 @@ class IReLeaSE(Trainer):
         score_exp_avg = ExpAverage(beta=0.6)
         score_threshold = 0.8
 
+        # collect mean predictions
+        unbiased_smiles_mean_pred, biased_smiles_mean_pred, gen_smiles_mean_pred = [], [], []
+        unbiased_smiles_mean_pred_data_node = DataNode('baseline_mean_vals', unbiased_smiles_mean_pred)
+        biased_smiles_mean_pred_data_node = DataNode('biased_mean_vals', biased_smiles_mean_pred)
+        gen_smiles_mean_pred_data_node = DataNode('gen_mean_vals', gen_smiles_mean_pred)
+        if sim_data_node:
+            sim_data_node.data = [unbiased_smiles_mean_pred_data_node,
+                                  biased_smiles_mean_pred_data_node,
+                                  gen_smiles_mean_pred_data_node]
+
         # load pretrained model
         if agent_net_path and agent_net_name:
             print('Loading pretrained model...')
@@ -301,6 +311,9 @@ class IReLeaSE(Trainer):
                         mean_preds = np.mean(predictions)
                         per_valid = len(predictions) / n_to_generate
                         print(f'Mean value of predictions = {mean_preds}, % of valid SMILES = {per_valid}')
+                        unbiased_smiles_mean_pred.append(baseline_score)
+                        biased_smiles_mean_pred.append(demo_score)
+                        gen_smiles_mean_pred.append(mean_preds)
                         tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)

@@ -254,6 +254,16 @@ class IReLeaSE(Trainer):
 
         start = time.time()
 
+        # collect mean predictions
+        unbiased_smiles_mean_pred, biased_smiles_mean_pred, gen_smiles_mean_pred = [], [], []
+        unbiased_smiles_mean_pred_data_node = DataNode('baseline_mean_vals', unbiased_smiles_mean_pred)
+        biased_smiles_mean_pred_data_node = DataNode('biased_mean_vals', biased_smiles_mean_pred)
+        gen_smiles_mean_pred_data_node = DataNode('gen_mean_vals', gen_smiles_mean_pred)
+        if sim_data_node:
+            sim_data_node.data = [unbiased_smiles_mean_pred_data_node,
+                                  biased_smiles_mean_pred_data_node,
+                                  gen_smiles_mean_pred_data_node]
+
         # Begin simulation and training
         total_rewards = []
         trajectories = []
@@ -308,6 +318,9 @@ class IReLeaSE(Trainer):
                         print(f'Mean value of predictions = {mean_preds}, '
                               f'% of valid SMILES = {per_valid}, '
                               f'% in drug-like region={percentage_in_threshold}')
+                        unbiased_smiles_mean_pred.append(baseline_score)
+                        biased_smiles_mean_pred.append(demo_score)
+                        gen_smiles_mean_pred.append(mean_preds)
                         tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
@@ -477,13 +490,13 @@ def main(flags):
 
 
 def default_hparams(args):
-    return {'d_model': 1500,
+    return {'d_model': 15,
             'dropout': 0.0,
             'monte_carlo_N': 5,
             'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 10,
+            'episodes_to_train': 2,
             'gae_lambda': 0.95,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
@@ -503,7 +516,7 @@ def default_hparams(args):
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
                              'num_layers': 2,
-                             'stack_width': 1500,
+                             'stack_width': 15,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.0000,

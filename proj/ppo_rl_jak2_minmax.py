@@ -260,6 +260,16 @@ class IReLeaSE(Trainer):
         exp_trajectories = []
         step_idx = 0
 
+        # collect mean predictions
+        unbiased_smiles_mean_pred, biased_smiles_mean_pred, gen_smiles_mean_pred = [], [], []
+        unbiased_smiles_mean_pred_data_node = DataNode('baseline_mean_vals', unbiased_smiles_mean_pred)
+        biased_smiles_mean_pred_data_node = DataNode('biased_mean_vals', biased_smiles_mean_pred)
+        gen_smiles_mean_pred_data_node = DataNode('gen_mean_vals', gen_smiles_mean_pred)
+        if sim_data_node:
+            sim_data_node.data = [unbiased_smiles_mean_pred_data_node,
+                                  biased_smiles_mean_pred_data_node,
+                                  gen_smiles_mean_pred_data_node]
+
         env = MoleculeEnv(actions=get_default_tokens(), reward_func=reward_func)
         exp_source = ExperienceSourceFirstLast(env, agent, gamma, steps_count=1, steps_delta=1)
         traj_prob = 1.
@@ -303,6 +313,9 @@ class IReLeaSE(Trainer):
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
                         print(f'Mean value of predictions = {score}, % of valid SMILES = {per_valid}')
+                        unbiased_smiles_mean_pred.append(baseline_score)
+                        biased_smiles_mean_pred.append(demo_score)
+                        gen_smiles_mean_pred.append(score)
                         tb_writer.add_scalars('qsar_score', {'sampled': score,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)

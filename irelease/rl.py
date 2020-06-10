@@ -250,7 +250,7 @@ class PPO(DRLAlgorithm):
     """
 
     def __init__(self, actor, critic, actor_opt, critic_opt, initial_states_func, initial_states_args, gamma=0.99,
-                 gae_lambda=0.95, ppo_eps=0.2, ppo_epochs=10, ppo_batch=64, device='cpu'):
+                 gae_lambda=0.95, ppo_eps=0.2, ppo_epochs=10, ppo_batch=64, entropy_beta=0.01, device='cpu'):
         assert callable(initial_states_func)
         assert isinstance(initial_states_args, dict)
         self.actor = actor
@@ -265,6 +265,7 @@ class PPO(DRLAlgorithm):
         self.ppo_eps = ppo_eps
         self.ppo_epochs = ppo_epochs
         self.ppo_batch = ppo_batch
+        self.entropy_beta = entropy_beta
 
     @property
     def model(self):
@@ -419,7 +420,13 @@ class PPO(DRLAlgorithm):
                     surr_obj_v = adv * ratio_v
                     clipped_surr_v = adv * torch.clamp(ratio_v, 1.0 - self.ppo_eps, 1.0 + self.ppo_eps)
                     loss_policy_v = torch.min(surr_obj_v, clipped_surr_v)
-                    ac_loss = ac_loss - loss_policy_v
+
+                    # Maximize entropy
+                    prob = torch.softmax(output.view(1, -1), dim=1)
+                    prob = prob[0, action]
+                    entropy = prob * logprob_pi_v
+                    entropy_loss = self.entropy_beta * entropy
+                    ac_loss = ac_loss - (loss_policy_v + entropy_loss)
             # Update weights
             self.critic_opt.zero_grad()
             self.actor_opt.zero_grad()
