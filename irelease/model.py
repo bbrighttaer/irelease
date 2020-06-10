@@ -552,8 +552,9 @@ class StackedRNNLayerNorm(nn.Module):
 
 class RewardNetRNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, bidirectional=True, dropout=0., unit_type='lstm',
-                 use_attention=False):
+                 use_attention=False, use_smiles_validity_flag=True):
         super(RewardNetRNN, self).__init__()
+        self.v_flag = use_smiles_validity_flag
         input_size = int(input_size)
         hidden_size = int(hidden_size)
         num_layers = int(num_layers)
@@ -582,7 +583,7 @@ class RewardNetRNN(nn.Module):
         if use_attention:
             self.attn_linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
             lin_dim = hidden_size
-        self.reward_net = nn.Linear(lin_dim + 1, 1)
+        self.reward_net = nn.Linear(lin_dim + 1 if self.v_flag else 0, 1)
 
     def forward(self, inp):
         """
@@ -626,7 +627,8 @@ class RewardNetRNN(nn.Module):
             rw_x = hidden_[0] if self.has_cell else hidden_
         else:
             rw_x = output[-1]
-        rw_x = torch.cat([rw_x, inp[-1]], dim=-1)
+        if self.v_flag:
+            rw_x = torch.cat([rw_x, inp[-1]], dim=-1)
         reward = self.reward_net(rw_x)
         return reward
 
