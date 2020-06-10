@@ -12,6 +12,7 @@ from rdkit import Chem
 from rdkit import DataStructs
 from rdkit import RDLogger
 from sklearn.model_selection import KFold, StratifiedKFold
+from torch.utils.data import Dataset
 from tqdm import trange
 
 from irelease.mol_graphs import ConvMol
@@ -748,3 +749,15 @@ class DummyException(RuntimeError):
 
     def __init__(self, *args, **kwargs):  # real signature unknown
         pass
+
+
+class SmilesDataset(Dataset):
+    def __init__(self, x, y):
+        self.X, processed_indices, invalid_indices = get_fp(x)
+        self.y = y[processed_indices]
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, item):
+        return self.X[item], self.y[item]

@@ -32,7 +32,7 @@ from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewa
     StateActionProbRegistry, REINFORCE, Trajectory, EpisodeStep
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles
-from mol_metrics import calculate_internal_diversity
+from irelease.mol_metrics import calculate_internal_diversity
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")

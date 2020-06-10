@@ -143,6 +143,10 @@ class SVRPredictor(Predictor):
         return canonical_smiles, prediction, invalid_smiles
 
 
+class XGBPredictor(SVRPredictor):
+    pass
+
+
 class SVCPredictor(Predictor):
     def __init__(self, svc_path):
         self.svc = DRD2Model(svc_path)

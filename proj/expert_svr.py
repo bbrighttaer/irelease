@@ -21,27 +21,14 @@ from sklearn.svm import SVR
 from soek import Trainer, DataNode, CategoricalParam, RealParam, RandomSearch, \
     BayesianOptSearch
 from soek.bopt import GPMinArgs
-from torch.utils.data import Dataset
 
 from irelease.dataloader import load_smiles_data
-from irelease.utils import Flags, time_since, get_fp
+from irelease.utils import Flags, time_since, SmilesDataset
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
 seeds = [42]
-
-
-class SmilesDataset(Dataset):
-    def __init__(self, x, y):
-        self.X, processed_indices, invalid_indices = get_fp(x)
-        self.y = y[processed_indices]
-
-    def __len__(self):
-        return len(self.X)
-
-    def __getitem__(self, item):
-        return self.X[item], self.y[item]
 
 
 class ExpertTrainer(Trainer):
