@@ -134,7 +134,8 @@ class IReLeaSE(Trainer):
                                                 bidirectional=hparams['reward_params']['bidirectional'],
                                                 use_attention=hparams['reward_params']['use_attention'],
                                                 dropout=hparams['dropout'],
-                                                unit_type=hparams['reward_params']['unit_type']))
+                                                unit_type=hparams['reward_params']['unit_type'],
+                                                use_smiles_validity_flag=hparams['reward_params']['use_validity_flag']))
         reward_net = reward_net.to(device)
 
         expert_model = RNNPredictor(hparams['expert_model_params'], device)
@@ -362,7 +363,8 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + '_IReLeaSE-REINFORCE_' + ('no_irl' if flags.use_true_reward else 'with_irl')
+    sim_label = flags.exp_name + '_IReLeaSE-REINFORCE_' + ('no_irl' if flags.use_true_reward else 'with_irl') + (
+        '_no_vflag' if flags.no_smiles_validity_flag else '')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -466,7 +468,8 @@ def default_hparams(args):
                               'unit_type': 'lstm',
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
-                              'use_attention': True,
+                              'use_attention': args.use_attention,
+                              'use_validity_flag': ~args.no_smiles_validity_flag,
                               'bidirectional': True,
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.0000,
@@ -507,6 +510,7 @@ def get_hparam_config(args):
                                         'irl_alg_num_iter': DiscreteParam(2, max=10),
                                         'use_attention': ConstantParam(False),
                                         'bidirectional': ConstantParam(True),
+                                        'use_validity_flag': ConstantParam(~args.no_smiles_validity_flag),
                                         'dropout': RealParam(),
                                         'optimizer': CategoricalParam(
                                             choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
@@ -556,6 +560,8 @@ if __name__ == '__main__':
                         action='store_true',
                         help='If true then no reward function would be learned but the true reward would be used.'
                              'This requires that the explicit reward function is given.')
+    parser.add_argument('--no_smiles_validity_flag', action='store_true',
+                        help='If True, smiles validity flag would not be passed to the reward net')
 
     args = parser.parse_args()
     flags = Flags()
