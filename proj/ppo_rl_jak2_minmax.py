@@ -226,7 +226,8 @@ class IReLeaSE(Trainer):
         return score
 
     @staticmethod
-    def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500, sim_data_node=None,
+    def train(init_args, bias_mode, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500,
+              sim_data_node=None,
               tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
@@ -240,9 +241,9 @@ class IReLeaSE(Trainer):
         demo_data_gen = init_args['demo_data_gen']
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
-        best_score = 0.
         exp_avg = ExpAverage(beta=0.6)
         score_threshold = 6.68
+        best_score = 6.0 if bias_mode == 'min' else 0.
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -330,7 +331,8 @@ class IReLeaSE(Trainer):
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
                         exp_avg.update(score)
-                        if exp_avg.value > best_score:
+                        condition = exp_avg.value > best_score if bias_mode == 'max' else exp_avg.value < best_score
+                        if condition:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
@@ -422,6 +424,7 @@ def main(flags):
                                 'agent_net_name': flags.pretrained_model,
                                 'learn_irl': not flags.use_true_reward,
                                 'seed': seed,
+                                'bias_mode': flags.bias_mode,
                                 'n_episodes': 300,
                                 'is_hsearch': True,
                                 'tb_writer': summary_writer_creator}
@@ -456,7 +459,7 @@ def main(flags):
             data_gens = irelease.data_provider(k, flags)
             init_args = irelease.initialize(hyper_params, data_gens['demo_data'], data_gens['unbiased_data'],
                                             data_gens['prior_data'])
-            results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
+            results = irelease.train(init_args, flags.bias_mode, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
                                      n_episodes=500,
                                      tb_writer=summary_writer_creator)
@@ -537,6 +540,7 @@ def get_hparam_config(args):
             'ppo_batch': ConstantParam(1),
             'ppo_epochs': DiscreteParam(2, max=10),
             'entropy_beta': LogRealParam(),
+            'bias_mode': ConstantParam(args.bias_mode),
             'use_true_reward': ConstantParam(args.use_true_reward),
             'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
                                         'd_model': DiscreteParam(min=128, max=1024),

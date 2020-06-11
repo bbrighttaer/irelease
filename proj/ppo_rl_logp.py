@@ -502,7 +502,7 @@ def default_hparams(args):
             'ppo_eps': 0.2,
             'ppo_batch': 1,
             'ppo_epochs': 5,
-            'entroyp_beta': 0.01,
+            'entropy_beta': 0.01,
             'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 512,
