@@ -246,10 +246,6 @@ class IReLeaSE(Trainer):
         best_model_wts = None
         exp_avg = ExpAverage(beta=0.6)
         best_score = 0.
-        if bias_mode == 'max':
-            score_threshold = 6.7
-        else:
-            score_threshold = 6.0
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -317,13 +313,13 @@ class IReLeaSE(Trainer):
                         mean_preds = np.nanmean(predictions)
                         try:
                             if bias_mode == 'max':
-                                percentage_in_threshold = np.sum((predictions > score_threshold)) / len(predictions)
+                                percentage_in_threshold = np.sum((predictions >= demo_score)) / len(predictions)
                             else:
-                                percentage_in_threshold = np.sum((predictions < score_threshold)) / len(predictions)
+                                percentage_in_threshold = np.sum((predictions <= demo_score)) / len(predictions)
                         except:
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
-                        if is_hsearch and per_valid < 0.1:
+                        if is_hsearch and per_valid < 0.2:
                             break
                         print(f'Mean value of predictions = {mean_preds}, % of valid SMILES = {per_valid}')
                         unbiased_smiles_mean_pred.append(baseline_score)
@@ -342,17 +338,16 @@ class IReLeaSE(Trainer):
                             tracker.track(k, eval_dict[k], step_idx)
                         avg_len = np.nanmean([len(s) for s in samples])
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
+                        d_penalty = eval_score < .5
+                        s_penalty = avg_len < 20
                         if bias_mode == 'max':
-                            p_score = mean_preds - demo_score
+                            diff = mean_preds - demo_score
                         else:
-                            p_score = demo_score - mean_preds
-                        diversity = 0 if eval_score >= 0.3 else np.log(eval_score)
-                        smile_length = 0 if avg_len >= 20 else -np.exp(p_score)
-                        score = 2 * np.exp(p_score) + max(-np.exp(p_score), np.log(per_valid)) + max(-np.exp(p_score),
-                                                                                         diversity) + smile_length
+                            diff = demo_score - mean_preds
+                        score = 3 * np.exp(diff) + np.log(per_valid + 1e-5) - s_penalty * np.exp(
+                            diff) - d_penalty * np.exp(diff)
                         tracker.track('score', score, step_idx)
                         exp_avg.update(score)
-                        # condition = exp_avg.value > best_score if bias_mode == 'max' else exp_avg.value < best_score
                         if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
