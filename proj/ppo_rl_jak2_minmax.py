@@ -40,7 +40,7 @@ from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tenso
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [1]
+seeds = [71, 0, 8, 3]
 
 if torch.cuda.is_available():
     dvc_id = 0
@@ -99,7 +99,8 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
-        agent_net = agent_net.to(device)
+        with contextlib.suppress(Exception):
+            agent_net = agent_net.to(device)
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
         probs_reg = StateActionProbRegistry()
@@ -120,7 +121,8 @@ class IReLeaSE(Trainer):
                                CriticRNN(hparams['d_model'], hparams['critic_params']['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
                                          num_layers=hparams['critic_params']['num_layers']))
-        critic = critic.to(device)
+        with contextlib.suppress(Exception):
+            critic = critic.to(device)
         optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
                       critic=critic, critic_opt=optimizer_critic_net,
@@ -144,7 +146,8 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type'],
                                                 use_smiles_validity_flag=hparams['reward_params']['use_validity_flag']))
-        reward_net = reward_net.to(device)
+        with contextlib.suppress(Exception):
+            reward_net = reward_net.to(device)
 
         expert_model = XGBPredictor(hparams['expert_model_dir'])
         true_reward_func = get_jak2_max_reward if hparams['bias_mode'] == 'max' else get_jak2_min_reward
@@ -242,8 +245,11 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         exp_avg = ExpAverage(beta=0.6)
-        score_threshold = 6.68
-        best_score = 6.0 if bias_mode == 'min' else 0.
+        best_score = 0.
+        if bias_mode == 'max':
+            score_threshold = 6.7
+        else:
+            score_threshold = 6.0
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -308,17 +314,22 @@ class IReLeaSE(Trainer):
                             samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
-                        score = np.mean(predictions)
+                        mean_preds = np.nanmean(predictions)
                         try:
-                            percentage_in_threshold = np.sum((predictions >= score_threshold)) / len(predictions)
+                            if bias_mode == 'max':
+                                percentage_in_threshold = np.sum((predictions > score_threshold)) / len(predictions)
+                            else:
+                                percentage_in_threshold = np.sum((predictions < score_threshold)) / len(predictions)
                         except:
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
-                        print(f'Mean value of predictions = {score}, % of valid SMILES = {per_valid}')
+                        if is_hsearch and per_valid < 0.1:
+                            break
+                        print(f'Mean value of predictions = {mean_preds}, % of valid SMILES = {per_valid}')
                         unbiased_smiles_mean_pred.append(baseline_score)
                         biased_smiles_mean_pred.append(demo_score)
-                        gen_smiles_mean_pred.append(score)
-                        tb_writer.add_scalars('qsar_score', {'sampled': score,
+                        gen_smiles_mean_pred.append(mean_preds)
+                        tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
                         tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
@@ -329,10 +340,20 @@ class IReLeaSE(Trainer):
                                                        demo_data_gen.random_training_set_smiles(1000))
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
+                        avg_len = np.nanmean([len(s) for s in samples])
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
+                        if bias_mode == 'max':
+                            p_score = mean_preds - demo_score
+                        else:
+                            p_score = demo_score - mean_preds
+                        diversity = 0 if eval_score >= 0.3 else np.log(eval_score)
+                        smile_length = 0 if avg_len >= 20 else -np.exp(p_score)
+                        score = 2 * np.exp(p_score) + max(-np.exp(p_score), np.log(per_valid)) + max(-np.exp(p_score),
+                                                                                         diversity) + smile_length
+                        tracker.track('score', score, step_idx)
                         exp_avg.update(score)
-                        condition = exp_avg.value > best_score if bias_mode == 'max' else exp_avg.value < best_score
-                        if condition:
+                        # condition = exp_avg.value > best_score if bias_mode == 'max' else exp_avg.value < best_score
+                        if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
@@ -425,7 +446,7 @@ def main(flags):
                                 'learn_irl': not flags.use_true_reward,
                                 'seed': seed,
                                 'bias_mode': flags.bias_mode,
-                                'n_episodes': 300,
+                                'n_episodes': 150,
                                 'is_hsearch': True,
                                 'tb_writer': summary_writer_creator}
             hparams_conf = get_hparam_config(flags)
