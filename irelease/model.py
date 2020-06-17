@@ -642,8 +642,8 @@ class CriticRNN(nn.Module):
         rnn = nn.GRU if unit_type == 'gru' else nn.LSTM
         self.has_cell = unit_type == 'lstm'
         self.hidden_size = hidden_size
-        self.rnn = rnn(input_size, hidden_size, num_layers, bidirectional=True, dropout=dropout)
-        self.num_layers = num_layers
+        self.rnn = rnn(input_size, hidden_size, int(num_layers), bidirectional=True, dropout=dropout)
+        self.num_layers = int(num_layers)
         self.norm = nn.LayerNorm(hidden_size * 2)
         self.linear = nn.Linear(hidden_size * 2, 1)
 

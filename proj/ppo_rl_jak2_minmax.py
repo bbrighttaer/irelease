@@ -9,6 +9,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import argparse
 import contextlib
 import copy
+import math
 import os
 import random
 import time
@@ -35,12 +36,12 @@ from irelease.reward import RewardFunction
 from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, ExpAverage, DummyException
+    time_since, generate_smiles, ExpAverage, parse_hparams
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [71, 0, 8, 3]
+seeds = [71, 1, 7, 8, 3]
 
 if torch.cuda.is_available():
     dvc_id = 0
@@ -99,9 +100,9 @@ class IReLeaSE(Trainer):
                                                  hidden_size=hparams['d_model'],
                                                  bidirectional=False,
                                                  bias=True))
+        optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         with contextlib.suppress(Exception):
             agent_net = agent_net.to(device)
-        optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
         probs_reg = StateActionProbRegistry()
         init_state_args = {'num_layers': hparams['agent_params']['num_layers'],
@@ -121,9 +122,9 @@ class IReLeaSE(Trainer):
                                CriticRNN(hparams['d_model'], hparams['critic_params']['d_model'],
                                          unit_type=hparams['critic_params']['unit_type'],
                                          num_layers=hparams['critic_params']['num_layers']))
+        optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         with contextlib.suppress(Exception):
             critic = critic.to(device)
-        optimizer_critic_net = parse_optimizer(hparams['critic_params'], critic)
         drl_alg = PPO(actor=agent_net, actor_opt=optimizer_agent_net,
                       critic=critic, critic_opt=optimizer_critic_net,
                       initial_states_func=agent_net_hidden_states_func,
@@ -146,6 +147,7 @@ class IReLeaSE(Trainer):
                                                 dropout=hparams['dropout'],
                                                 unit_type=hparams['reward_params']['unit_type'],
                                                 use_smiles_validity_flag=hparams['reward_params']['use_validity_flag']))
+        optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         with contextlib.suppress(Exception):
             reward_net = reward_net.to(device)
 
@@ -158,7 +160,6 @@ class IReLeaSE(Trainer):
                                          true_reward_func=true_reward_func,
                                          expert_func=expert_model,
                                          no_mc_fill_val=hparams['no_mc_fill_val'])
-        optimizer_reward_net = parse_optimizer(hparams['reward_params'], reward_net)
         demo_data_gen.set_batch_size(hparams['reward_params']['demo_batch_size'])
         irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, demo_data_gen,
                                           k=hparams['reward_params']['irl_alg_num_iter'],
@@ -245,14 +246,22 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         exp_avg = ExpAverage(beta=0.6)
-        best_score = 0.
+        best_score = -1.
 
         # load pretrained model
         if agent_net_path and agent_net_name:
-            print('Loading pretrained model...')
-            weights = IReLeaSE.load_model(agent_net_path, agent_net_name)
-            agent.model.load_state_dict(weights)
-            print('Pretrained model loaded successfully!')
+            try:
+                print('Loading pretrained model...')
+                weights = IReLeaSE.load_model(agent_net_path, agent_net_name)
+                agent.model.load_state_dict(weights)
+                print('Pretrained model loaded successfully!')
+            except:
+                print('Pretrained model could not be loaded. Terminating prematurely.')
+                return {'model': [drl_algorithm.actor,
+                                  drl_algorithm.critic,
+                                  irl_algorithm.model],
+                        'score': round(best_score, 3),
+                        'epoch': -1}
 
         start = time.time()
 
@@ -281,7 +290,8 @@ class IReLeaSE(Trainer):
 
         demo_score = np.mean(expert_model(demo_data_gen.random_training_set_smiles(1000))[1])
         baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
-        with contextlib.suppress(Exception if is_hsearch else DummyException):
+        # with contextlib.suppress(RuntimeError if is_hsearch else DummyException):
+        try:
             with TBMeanTracker(tb_writer, 1) as tracker:
                 for step_idx, exp in tqdm(enumerate(exp_source)):
                     exp_traj.append(exp)
@@ -311,6 +321,10 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         mean_preds = np.nanmean(predictions)
+                        if math.isnan(mean_preds) or math.isinf(mean_preds):
+                            print(f'mean preds is {mean_preds}, terminating')
+                            best_score = -1.
+                            break
                         try:
                             if bias_mode == 'max':
                                 percentage_in_threshold = np.sum((predictions >= demo_score)) / len(predictions)
@@ -320,6 +334,8 @@ class IReLeaSE(Trainer):
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
                         if is_hsearch and per_valid < 0.2:
+                            print(f'Percentage of valid SMILES is = {per_valid}. Terminating...')
+                            best_score = -1.
                             break
                         print(f'Mean value of predictions = {mean_preds}, % of valid SMILES = {per_valid}')
                         unbiased_smiles_mean_pred.append(baseline_score)
@@ -346,8 +362,15 @@ class IReLeaSE(Trainer):
                             diff = demo_score - mean_preds
                         score = 3 * np.exp(diff) + np.log(per_valid + 1e-5) - s_penalty * np.exp(
                             diff) - d_penalty * np.exp(diff)
+                        # score = np.exp(diff) + np.mean([np.exp(per_valid), np.exp(percentage_in_threshold)])
+                        if math.isnan(score) or math.isinf(score):
+                            best_score = -1.
+                            print(f'Score is {score}, terminating.')
+                            break
                         tracker.track('score', score, step_idx)
                         exp_avg.update(score)
+                        if is_hsearch:
+                            best_score = exp_avg.value
                         if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
@@ -376,13 +399,16 @@ class IReLeaSE(Trainer):
                     batch_episodes = 0
                     trajectories.clear()
                     exp_trajectories.clear()
-
+        except Exception as e:
+            print(str(e))
         if best_model_wts:
             drl_algorithm.actor.load_state_dict(best_model_wts[0])
             drl_algorithm.critic.load_state_dict(best_model_wts[1])
             irl_algorithm.model.load_state_dict(best_model_wts[2])
         duration = time.time() - start
         print('\nTraining duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
+        if math.isinf(best_score) or math.isnan(best_score):
+            best_score = -1.
         return {'model': [drl_algorithm.actor,
                           drl_algorithm.critic,
                           irl_algorithm.model],
@@ -441,14 +467,15 @@ def main(flags):
                                 'learn_irl': not flags.use_true_reward,
                                 'seed': seed,
                                 'bias_mode': flags.bias_mode,
-                                'n_episodes': 150,
+                                'n_episodes': 60,
                                 'is_hsearch': True,
                                 'tb_writer': summary_writer_creator}
             hparams_conf = get_hparam_config(flags)
             search_alg = {'random_search': RandomSearch,
                           'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
                                                                   BayesianOptSearch)
-            search_args = GPMinArgs(n_calls=20, random_state=seed)
+            search_args = GPMinArgs(n_calls=20, random_state=None)
+            # search_args = GBRTMinArgs(n_calls=20, random_state=seed)
             hparam_search = search_alg(hparam_config=hparams_conf,
                                        num_folds=1,
                                        initializer=irelease.initialize,
@@ -471,7 +498,9 @@ def main(flags):
             print(stats)
             print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
-            hyper_params = default_hparams(flags)
+            # hyper_params = default_hparams(flags)
+            hyper_params = parse_hparams('bayopt_search_JAK2_max_IReLeaSE-ppo_with_irl_no_attn_2020_06_'
+                                         '16__02_31_16_seed_0_gp.csv', 3)
             data_gens = irelease.data_provider(k, flags)
             init_args = irelease.initialize(hyper_params, data_gens['demo_data'], data_gens['unbiased_data'],
                                             data_gens['prior_data'])
@@ -496,7 +525,7 @@ def main(flags):
                                      f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
-    sim_data.to_json(path="./analysis/")
+    # sim_data.to_json(path="./analysis/")
 
 
 def default_hparams(args):
@@ -545,12 +574,12 @@ def default_hparams(args):
 
 def get_hparam_config(args):
     return {'d_model': ConstantParam(1500),
-            'dropout': RealParam(min=0.),
+            'dropout': ConstantParam(0.),
             'monte_carlo_N': ConstantParam(5),
             'use_monte_carlo_sim': ConstantParam(True),
             'no_mc_fill_val': ConstantParam(0.0),
             'gamma': ConstantParam(0.97),
-            'episodes_to_train': DiscreteParam(min=5, max=20),
+            'episodes_to_train': DiscreteParam(min=5, max=10),
             'gae_lambda': RealParam(0.9, max=0.999),
             'ppo_eps': ConstantParam(0.2),
             'ppo_batch': ConstantParam(1),
@@ -558,10 +587,10 @@ def get_hparam_config(args):
             'entropy_beta': LogRealParam(),
             'bias_mode': ConstantParam(args.bias_mode),
             'use_true_reward': ConstantParam(args.use_true_reward),
-            'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
-                                        'd_model': DiscreteParam(min=128, max=1024),
+            'reward_params': DictParam({'num_layers': ConstantParam(2),
+                                        'd_model': DiscreteParam(min=128, max=512),
                                         'unit_type': ConstantParam('lstm'),
-                                        'demo_batch_size': CategoricalParam([64, 128, 256]),
+                                        'demo_batch_size': ConstantParam(128),
                                         'irl_alg_num_iter': DiscreteParam(2, max=10),
                                         'use_attention': ConstantParam(False),
                                         'bidirectional': ConstantParam(True),
@@ -580,7 +609,6 @@ def get_hparam_config(args):
                                        'optimizer__global__lr': LogRealParam()}),
             'critic_params': DictParam({'num_layers': ConstantParam(2),
                                         'd_model': ConstantParam(256),
-                                        'dropout': RealParam(),
                                         'unit_type': ConstantParam('lstm'),
                                         'optimizer': ConstantParam('adadelta'),
                                         'optimizer__global__weight_decay': LogRealParam(),
