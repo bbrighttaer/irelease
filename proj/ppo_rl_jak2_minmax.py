@@ -41,7 +41,7 @@ from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tenso
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [71, 1, 7, 8, 3]
+seeds = [123, 70, 8, 3]
 
 if torch.cuda.is_available():
     dvc_id = 0
@@ -498,7 +498,10 @@ def main(flags):
             print(stats)
             print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
         else:
-            # hyper_params = default_hparams(flags)
+            # if flags.bias_mode == 'min':
+            #     hyper_params = default_hparams_min(flags)
+            # else:
+            #     hyper_params = default_hparams_max(flags)
             hyper_params = parse_hparams('bayopt_search_JAK2_max_IReLeaSE-ppo_with_irl_no_attn_2020_06_'
                                          '16__02_31_16_seed_0_gp.csv', 3)
             data_gens = irelease.data_provider(k, flags)
@@ -528,7 +531,7 @@ def main(flags):
     # sim_data.to_json(path="./analysis/")
 
 
-def default_hparams(args):
+def default_hparams_min(args):
     return {'d_model': 1500,
             'dropout': 0.0,
             'monte_carlo_N': 5,
@@ -571,6 +574,23 @@ def default_hparams(args):
             'expert_model_dir': './model_dir/expert_xgb_reg'
             }
 
+
+def default_hparams_max(args):
+    return {'d_model': 1500, 'dropout': 0.0, 'monte_carlo_N': 5, 'use_monte_carlo_sim': True, 'no_mc_fill_val': 0.0,
+            'gamma': 0.97, 'episodes_to_train': 9, 'gae_lambda': 0.909968323866708, 'ppo_eps': 0.2, 'ppo_batch': 1,
+            'ppo_epochs': 8, 'entropy_beta': 0.0004765572677809507, 'bias_mode': 'max', 'use_true_reward': False,
+            'reward_params': {'num_layers': 2, 'd_model': 421, 'unit_type': 'lstm', 'demo_batch_size': 128,
+                              'irl_alg_num_iter': 4, 'use_attention': False, 'bidirectional': True,
+                              'dropout': 0.2925347503198279, 'use_validity_flag': -1, 'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.0014805953778484076,
+                              'optimizer__global__lr': 0.44792254979127255},
+            'agent_params': {'unit_type': 'gru', 'num_layers': 2, 'stack_width': 1500, 'stack_depth': 200,
+                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.011423040529038715,
+                             'optimizer__global__lr': 0.0001612035957629892},
+            'critic_params': {'num_layers': 2, 'd_model': 256, 'unit_type': 'lstm', 'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.00036112341639469995,
+                              'optimizer__global__lr': 0.5728470013832712},
+            'expert_model_dir': './model_dir/expert_xgb_reg'}
 
 def get_hparam_config(args):
     return {'d_model': ConstantParam(1500),
