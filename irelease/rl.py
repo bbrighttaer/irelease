@@ -25,8 +25,11 @@ Trajectory = namedtuple('Trajectory', ['terminal_state', 'traj_prob'])
 class MolEnvProbabilityActionSelector(ActionSelector):
     """Selects an action"""
 
-    def __init__(self, actions):
+    def __init__(self, actions, seed=None):
+        self.seed = seed
         self.actions = actions
+        if seed:
+            np.random.seed(self.seed)
 
     def __call__(self, probs):
         assert isinstance(probs, np.ndarray)

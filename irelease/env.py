@@ -7,10 +7,11 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import copy
-import numpy as np
+
 import gym
+import numpy as np
 from gym.utils import seeding
-from irelease.data import GeneratorData
+
 from irelease.reward import RewardFunction
 
 

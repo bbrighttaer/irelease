@@ -36,12 +36,13 @@ from irelease.reward import RewardFunction
 from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, ExpAverage, parse_hparams
+    time_since, generate_smiles, ExpAverage
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [123, 70, 8, 3]
+# seeds = [10, 110, 120, 60]
+seeds = [4, 10, 110, 120, 60, 5, 6, 25, 27, 50, 64, 127, 14, 12]
 
 if torch.cuda.is_available():
     dvc_id = 0
@@ -103,7 +104,7 @@ class IReLeaSE(Trainer):
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         with contextlib.suppress(Exception):
             agent_net = agent_net.to(device)
-        selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
+        selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters, seed=hparams['seed'])
         probs_reg = StateActionProbRegistry()
         init_state_args = {'num_layers': hparams['agent_params']['num_layers'],
                            'hidden_size': hparams['d_model'],
@@ -230,9 +231,8 @@ class IReLeaSE(Trainer):
         return score
 
     @staticmethod
-    def train(init_args, bias_mode, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500,
-              sim_data_node=None,
-              tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
+    def train(init_args, bias_mode, agent_net_path=None, agent_net_name=None, n_episodes=500,
+              sim_data_node=None, tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -323,7 +323,7 @@ class IReLeaSE(Trainer):
                         mean_preds = np.nanmean(predictions)
                         if math.isnan(mean_preds) or math.isinf(mean_preds):
                             print(f'mean preds is {mean_preds}, terminating')
-                            best_score = -1.
+                            # best_score = -1.
                             break
                         try:
                             if bias_mode == 'max':
@@ -333,9 +333,9 @@ class IReLeaSE(Trainer):
                         except:
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
-                        if is_hsearch and per_valid < 0.2:
+                        if per_valid < 0.2:
                             print(f'Percentage of valid SMILES is = {per_valid}. Terminating...')
-                            best_score = -1.
+                            # best_score = -1.
                             break
                         print(f'Mean value of predictions = {mean_preds}, % of valid SMILES = {per_valid}')
                         unbiased_smiles_mean_pred.append(baseline_score)
@@ -364,7 +364,7 @@ class IReLeaSE(Trainer):
                             diff) - d_penalty * np.exp(diff)
                         # score = np.exp(diff) + np.mean([np.exp(per_valid), np.exp(percentage_in_threshold)])
                         if math.isnan(score) or math.isinf(score):
-                            best_score = -1.
+                            # best_score = -1.
                             print(f'Score is {score}, terminating.')
                             break
                         tracker.track('score', score, step_idx)
@@ -407,8 +407,8 @@ class IReLeaSE(Trainer):
             irl_algorithm.model.load_state_dict(best_model_wts[2])
         duration = time.time() - start
         print('\nTraining duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))
-        if math.isinf(best_score) or math.isnan(best_score):
-            best_score = -1.
+        # if math.isinf(best_score) or math.isnan(best_score):
+        #     best_score = -1.
         return {'model': [drl_algorithm.actor,
                           drl_algorithm.critic,
                           irl_algorithm.model],
@@ -450,6 +450,7 @@ def main(flags):
         np.random.seed(seed)
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
+        flags['seed'] = seed
 
         print('--------------------------------------------------------------------------------')
         print(f'{device}\n{sim_label}\tDemonstrations file: {flags.demo_file}')
@@ -458,58 +459,61 @@ def main(flags):
         irelease = IReLeaSE()
         k = 1
         if flags.hparam_search:
-            print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
-            # arguments to callables
-            extra_init_args = {}
-            extra_data_args = {'flags': flags}
-            extra_train_args = {'agent_net_path': flags.model_dir,
-                                'agent_net_name': flags.pretrained_model,
-                                'learn_irl': not flags.use_true_reward,
-                                'seed': seed,
-                                'bias_mode': flags.bias_mode,
-                                'n_episodes': 60,
-                                'is_hsearch': True,
-                                'tb_writer': summary_writer_creator}
-            hparams_conf = get_hparam_config(flags)
-            search_alg = {'random_search': RandomSearch,
-                          'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
-                                                                  BayesianOptSearch)
-            search_args = GPMinArgs(n_calls=20, random_state=None)
-            # search_args = GBRTMinArgs(n_calls=20, random_state=seed)
-            hparam_search = search_alg(hparam_config=hparams_conf,
-                                       num_folds=1,
-                                       initializer=irelease.initialize,
-                                       data_provider=irelease.data_provider,
-                                       train_fn=irelease.train,
-                                       save_model_fn=irelease.save_model,
-                                       alg_args=search_args,
-                                       init_args=extra_init_args,
-                                       data_args=extra_data_args,
-                                       train_args=extra_train_args,
-                                       data_node=data_node,
-                                       split_label='ppo-rl',
-                                       sim_label=sim_label,
-                                       dataset_label=None,
-                                       results_file=f'{flags.hparam_search_alg}_{sim_label}'
-                                                    f'_{date_label}_seed_{seed}')
-            start = time.time()
-            stats = hparam_search.fit()
-            print(f'Duration = {time_since(start)}')
-            print(stats)
-            print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
+            try:
+                print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
+                # arguments to callables
+                extra_init_args = {}
+                extra_data_args = {'flags': flags}
+                extra_train_args = {'agent_net_path': flags.model_dir,
+                                    'agent_net_name': flags.pretrained_model,
+                                    'learn_irl': not flags.use_true_reward,
+                                    'bias_mode': flags.bias_mode,
+                                    'n_episodes': 60,
+                                    'is_hsearch': True,
+                                    'tb_writer': summary_writer_creator}
+                hparams_conf = get_hparam_config(flags)
+                search_alg = {'random_search': RandomSearch,
+                              'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
+                                                                      BayesianOptSearch)
+                search_args = GPMinArgs(n_calls=20)
+                # search_args = GBRTMinArgs(n_calls=20, random_state=seed)
+                hparam_search = search_alg(hparam_config=hparams_conf,
+                                           num_folds=1,
+                                           initializer=irelease.initialize,
+                                           data_provider=irelease.data_provider,
+                                           train_fn=irelease.train,
+                                           save_model_fn=irelease.save_model,
+                                           alg_args=search_args,
+                                           init_args=extra_init_args,
+                                           data_args=extra_data_args,
+                                           train_args=extra_train_args,
+                                           data_node=data_node,
+                                           split_label='ppo-rl',
+                                           sim_label=sim_label,
+                                           dataset_label=None,
+                                           results_file=f'{flags.hparam_search_alg}_{sim_label}'
+                                                        f'_{date_label}_seed{seed}')
+                start = time.time()
+                stats = hparam_search.fit()
+                print(f'Duration = {time_since(start)}')
+                print(stats)
+                print("\nBest params = {}, duration={}".format(stats.best(), time_since(start)))
+            except ValueError as e:
+                print(str(e))
+
         else:
-            # if flags.bias_mode == 'min':
-            #     hyper_params = default_hparams_min(flags)
-            # else:
-            #     hyper_params = default_hparams_max(flags)
-            hyper_params = parse_hparams('bayopt_search_JAK2_max_IReLeaSE-ppo_with_irl_no_attn_2020_06_'
-                                         '16__02_31_16_seed_0_gp.csv', 3)
+            if flags.bias_mode == 'min':
+                hyper_params = default_hparams_min(flags)
+            else:
+                hyper_params = default_hparams_max(flags)
+            # hyper_params = parse_hparams('bayopt_search_JAK2_min_IReLeaSE-ppo_with_irl_no_attn_2020_06_'
+            #                              '18__21_45_37_seed_10_gp.csv', 19)
             data_gens = irelease.data_provider(k, flags)
             init_args = irelease.initialize(hyper_params, data_gens['demo_data'], data_gens['unbiased_data'],
                                             data_gens['prior_data'])
-            results = irelease.train(init_args, flags.bias_mode, flags.model_dir, flags.pretrained_model, seed,
+            results = irelease.train(init_args, flags.bias_mode, flags.model_dir, flags.pretrained_model,
                                      sim_data_node=data_node,
-                                     n_episodes=500,
+                                     n_episodes=100,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -532,68 +536,46 @@ def main(flags):
 
 
 def default_hparams_min(args):
-    return {'d_model': 1500,
-            'dropout': 0.0,
-            'monte_carlo_N': 5,
-            'use_monte_carlo_sim': True,
-            'no_mc_fill_val': 0.0,
-            'gamma': 0.97,
-            'episodes_to_train': 10,
-            'gae_lambda': 0.95,
-            'ppo_eps': 0.2,
-            'ppo_batch': 1,
-            'ppo_epochs': 5,
-            'entropy_beta': 0.01,
-            'bias_mode': args.bias_mode,
-            'expert_svr_dir': args.expert_dir,
-            'use_true_reward': args.use_true_reward,
-            'reward_params': {'num_layers': 2,
-                              'd_model': 256,
-                              'unit_type': 'lstm',
-                              'demo_batch_size': 32,
-                              'irl_alg_num_iter': 5,
-                              'use_attention': args.use_attention,
-                              'use_validity_flag': ~args.no_smiles_validity_flag,
-                              'bidirectional': True,
-                              'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.0000,
-                              'optimizer__global__lr': 0.001, },
-            'agent_params': {'unit_type': 'gru',
-                             'num_layers': 2,
-                             'stack_width': 1500,
-                             'stack_depth': 200,
-                             'optimizer': 'adadelta',
-                             'optimizer__global__weight_decay': 0.0000,
-                             'optimizer__global__lr': 0.001},
-            'critic_params': {'num_layers': 2,
-                              'd_model': 256,
-                              'unit_type': 'lstm',
-                              'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.00005,
-                              'optimizer__global__lr': 0.001},
-            'expert_model_dir': './model_dir/expert_xgb_reg'
-            }
+    return {'seed': args.seed,
+            'd_model': 1500, 'dropout': 0.0, 'monte_carlo_N': 5, 'use_monte_carlo_sim': True, 'no_mc_fill_val': 0.0,
+            'gamma': 0.97, 'episodes_to_train': 8, 'gae_lambda': 0.9078273641211726, 'ppo_eps': 0.2, 'ppo_batch': 1,
+            'ppo_epochs': 6, 'entropy_beta': 0.0013704064670121442, 'bias_mode': 'min', 'use_true_reward': False,
+            'reward_params': {'num_layers': 2, 'd_model': 266, 'unit_type': 'lstm', 'demo_batch_size': 128,
+                              'irl_alg_num_iter': 5, 'use_attention': False, 'bidirectional': True,
+                              'dropout': 0.9300040350307656, 'use_validity_flag': -1, 'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.012845947242774268,
+                              'optimizer__global__lr': 0.25705232829750674},
+            'agent_params': {'unit_type': 'gru', 'num_layers': 2, 'stack_width': 1500, 'stack_depth': 200,
+                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.003515971971878311,
+                             'optimizer__global__lr': 0.010320755348668033},
+            'critic_params': {'num_layers': 2, 'd_model': 256, 'unit_type': 'lstm', 'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.5699183789253841,
+                              'optimizer__global__lr': 0.00028234478055196336},
+            'expert_model_dir': './model_dir/expert_xgb_reg'}
 
 
 def default_hparams_max(args):
-    return {'d_model': 1500, 'dropout': 0.0, 'monte_carlo_N': 5, 'use_monte_carlo_sim': True, 'no_mc_fill_val': 0.0,
-            'gamma': 0.97, 'episodes_to_train': 9, 'gae_lambda': 0.909968323866708, 'ppo_eps': 0.2, 'ppo_batch': 1,
-            'ppo_epochs': 8, 'entropy_beta': 0.0004765572677809507, 'bias_mode': 'max', 'use_true_reward': False,
-            'reward_params': {'num_layers': 2, 'd_model': 421, 'unit_type': 'lstm', 'demo_batch_size': 128,
-                              'irl_alg_num_iter': 4, 'use_attention': False, 'bidirectional': True,
-                              'dropout': 0.2925347503198279, 'use_validity_flag': -1, 'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.0014805953778484076,
-                              'optimizer__global__lr': 0.44792254979127255},
+    return {'seed': args.seed, 'd_model': 1500, 'dropout': 0.0, 'monte_carlo_N': 5, 'use_monte_carlo_sim': True,
+            'no_mc_fill_val': 0.0, 'gamma': 0.97, 'episodes_to_train': 6, 'gae_lambda': 0.9571227000294775,
+            'ppo_eps': 0.2, 'ppo_batch': 1, 'ppo_epochs': 5, 'entropy_beta': 0.007430215554675442, 'bias_mode': 'max',
+            'use_true_reward': False,
+            'reward_params': {'num_layers': 2, 'd_model': 266, 'unit_type': 'lstm', 'demo_batch_size': 128,
+                              'irl_alg_num_iter': 3, 'use_attention': False, 'bidirectional': True,
+                              'dropout': 0.25291708374526056, 'use_validity_flag': -1, 'optimizer': 'sgd',
+                              'optimizer__global__weight_decay': 0.521947248227301,
+                              'optimizer__global__lr': 0.0008801674130176785},
             'agent_params': {'unit_type': 'gru', 'num_layers': 2, 'stack_width': 1500, 'stack_depth': 200,
-                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.011423040529038715,
-                             'optimizer__global__lr': 0.0001612035957629892},
+                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.17523455325471454,
+                             'optimizer__global__lr': 0.0003196882198931584},
             'critic_params': {'num_layers': 2, 'd_model': 256, 'unit_type': 'lstm', 'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.00036112341639469995,
-                              'optimizer__global__lr': 0.5728470013832712},
+                              'optimizer__global__weight_decay': 0.00020082856549588513,
+                              'optimizer__global__lr': 0.05525261546896301},
             'expert_model_dir': './model_dir/expert_xgb_reg'}
 
+
 def get_hparam_config(args):
-    return {'d_model': ConstantParam(1500),
+    return {'seed': ConstantParam(args.seed),
+            'd_model': ConstantParam(1500),
             'dropout': ConstantParam(0.),
             'monte_carlo_N': ConstantParam(5),
             'use_monte_carlo_sim': ConstantParam(True),
