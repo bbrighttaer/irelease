@@ -449,7 +449,8 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
     """
 
     def __init__(self, model, optimizer, demo_gen_data, agent_net, agent_net_init_func, agent_net_init_func_args, k=10,
-                 use_buffer=True, buffer_size=1000, buffer_batch_size=100, drop_importance_wts=False, device='cpu'):
+                 use_buffer=True, buffer_size=1000, buffer_batch_size=100, drop_importance_wts=False, seed=None,
+                 device='cpu'):
         self.model = model
         self.optimizer = optimizer
         self.lr_sch = StepLR(self.optimizer, gamma=0.95, step_size=500)
@@ -457,8 +458,10 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         self.k = k
         self.device = device
         self.use_buffer = use_buffer
+        if seed:
+            np.random.seed(seed)
         if use_buffer:
-            self.replay_buffer = TrajectoriesBuffer(buffer_size)
+            self.replay_buffer = TrajectoriesBuffer(buffer_size, seed)
         else:
             self.replay_buffer = None
         self.batch_size = buffer_batch_size
@@ -543,10 +546,12 @@ class TrajectoriesBuffer:
     adapted from ptan.ExperienceReplayBuffer
     """
 
-    def __init__(self, buffer_size):
+    def __init__(self, buffer_size, seed=None):
         self.capacity = buffer_size
         self.buffer = []
         self.pos = 0
+        if seed:
+            np.random.seed(seed)
 
     def __len__(self):
         return len(self.buffer)

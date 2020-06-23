@@ -40,12 +40,10 @@ from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tenso
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
-
-# seeds = [10, 110, 120, 60]
-seeds = [4, 10, 110, 120, 60, 5, 6, 25, 27, 50, 64, 127, 14, 12]
+seeds = [0, 5, 10]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 3
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -104,7 +102,7 @@ class IReLeaSE(Trainer):
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         with contextlib.suppress(Exception):
             agent_net = agent_net.to(device)
-        selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters, seed=hparams['seed'])
+        selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
         probs_reg = StateActionProbRegistry()
         init_state_args = {'num_layers': hparams['agent_params']['num_layers'],
                            'hidden_size': hparams['d_model'],
@@ -190,7 +188,7 @@ class IReLeaSE(Trainer):
         return init_args
 
     @staticmethod
-    def data_provider(k, flags):
+    def data_provider(k, flags, seed):
         tokens = get_default_tokens()
         demo_data = GeneratorData(training_data_path=flags.demo_file,
                                   delimiter='\t',
@@ -199,6 +197,7 @@ class IReLeaSE(Trainer):
                                   pad_symbol=' ',
                                   max_len=120,
                                   tokens=tokens,
+                                  seed=seed,
                                   use_cuda=use_cuda)
         unbiased_data = GeneratorData(training_data_path=flags.unbiased_file,
                                       delimiter='\t',
@@ -360,8 +359,9 @@ class IReLeaSE(Trainer):
                             diff = mean_preds - demo_score
                         else:
                             diff = demo_score - mean_preds
-                        score = 3 * np.exp(diff) + np.log(per_valid + 1e-5) - s_penalty * np.exp(
-                            diff) - d_penalty * np.exp(diff)
+                        # score = 3 * np.exp(diff) + np.log(per_valid + 1e-5) - s_penalty * np.exp(
+                        #     diff) - d_penalty * np.exp(diff)
+                        score = np.exp(diff)
                         # score = np.exp(diff) + np.mean([np.exp(per_valid), np.exp(percentage_in_threshold)])
                         if math.isnan(score) or math.isinf(score):
                             # best_score = -1.
@@ -463,19 +463,19 @@ def main(flags):
                 print(f'Hyperparameter search enabled: {flags.hparam_search_alg}')
                 # arguments to callables
                 extra_init_args = {}
-                extra_data_args = {'flags': flags}
+                extra_data_args = {'flags': flags, 'seed': seed}
                 extra_train_args = {'agent_net_path': flags.model_dir,
                                     'agent_net_name': flags.pretrained_model,
                                     'learn_irl': not flags.use_true_reward,
                                     'bias_mode': flags.bias_mode,
-                                    'n_episodes': 60,
+                                    'n_episodes': 110,
                                     'is_hsearch': True,
                                     'tb_writer': summary_writer_creator}
                 hparams_conf = get_hparam_config(flags)
                 search_alg = {'random_search': RandomSearch,
                               'bayopt_search': BayesianOptSearch}.get(flags.hparam_search_alg,
                                                                       BayesianOptSearch)
-                search_args = GPMinArgs(n_calls=20)
+                search_args = GPMinArgs(n_calls=20, random_state=seed)
                 # search_args = GBRTMinArgs(n_calls=20, random_state=seed)
                 hparam_search = search_alg(hparam_config=hparams_conf,
                                            num_folds=1,
@@ -506,14 +506,15 @@ def main(flags):
                 hyper_params = default_hparams_min(flags)
             else:
                 hyper_params = default_hparams_max(flags)
-            # hyper_params = parse_hparams('bayopt_search_JAK2_min_IReLeaSE-ppo_with_irl_no_attn_2020_06_'
-            #                              '18__21_45_37_seed_10_gp.csv', 19)
-            data_gens = irelease.data_provider(k, flags)
+            # hyper_params = parse_hparams(
+            #     'bayopt_search_JAK2_max_IReLeaSE-ppo_with_irl_no_attn_2020_06_23__06_22_11_seed0_gp.csv', 1)
+            # print(f'params={hyper_params}')
+            data_gens = irelease.data_provider(k, flags, seed)
             init_args = irelease.initialize(hyper_params, data_gens['demo_data'], data_gens['unbiased_data'],
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.bias_mode, flags.model_dir, flags.pretrained_model,
                                      sim_data_node=data_node,
-                                     n_episodes=100,
+                                     n_episodes=150,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -536,62 +537,114 @@ def main(flags):
 
 
 def default_hparams_min(args):
-    return {'seed': args.seed,
-            'd_model': 1500, 'dropout': 0.0, 'monte_carlo_N': 5, 'use_monte_carlo_sim': True, 'no_mc_fill_val': 0.0,
-            'gamma': 0.97, 'episodes_to_train': 8, 'gae_lambda': 0.9078273641211726, 'ppo_eps': 0.2, 'ppo_batch': 1,
-            'ppo_epochs': 6, 'entropy_beta': 0.0013704064670121442, 'bias_mode': 'min', 'use_true_reward': False,
-            'reward_params': {'num_layers': 2, 'd_model': 266, 'unit_type': 'lstm', 'demo_batch_size': 128,
-                              'irl_alg_num_iter': 5, 'use_attention': False, 'bidirectional': True,
-                              'dropout': 0.9300040350307656, 'use_validity_flag': -1, 'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.012845947242774268,
-                              'optimizer__global__lr': 0.25705232829750674},
-            'agent_params': {'unit_type': 'gru', 'num_layers': 2, 'stack_width': 1500, 'stack_depth': 200,
-                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.003515971971878311,
-                             'optimizer__global__lr': 0.010320755348668033},
-            'critic_params': {'num_layers': 2, 'd_model': 256, 'unit_type': 'lstm', 'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.5699183789253841,
-                              'optimizer__global__lr': 0.00028234478055196336},
-            'expert_model_dir': './model_dir/expert_xgb_reg'}
+    return {'d_model': 1500,
+            'dropout': 0.0,
+            'monte_carlo_N': 5,
+            'use_monte_carlo_sim': True,
+            'no_mc_fill_val': 0.0,
+            'gamma': 0.97,
+            'episodes_to_train': 6,
+            'gae_lambda': 0.95,
+            'ppo_eps': 0.2,
+            'ppo_batch': 1,
+            'ppo_epochs': 3,
+            'entropy_beta': 0.05,
+            'bias_mode': args.bias_mode,
+            'use_true_reward': args.use_true_reward,
+            'reward_params': {'num_layers': 2,
+                              'd_model': 512,
+                              'unit_type': 'gru',
+                              'demo_batch_size': 128,
+                              'irl_alg_num_iter': 4,
+                              'dropout': 0.0,
+                              'use_attention': args.use_attention,
+                              'use_validity_flag': ~args.no_smiles_validity_flag,
+                              'bidirectional': True,
+                              'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.005,
+                              'optimizer__global__lr': 0.001, },
+            'agent_params': {'unit_type': 'gru',
+                             'num_layers': 2,
+                             'stack_width': 1500,
+                             'stack_depth': 200,
+                             'optimizer': 'adadelta',
+                             'optimizer__global__weight_decay': 0.005,
+                             'optimizer__global__lr': 0.001},
+            'critic_params': {'num_layers': 2,
+                              'd_model': 300,
+                              'dropout': 0.2,
+                              'unit_type': 'gru',
+                              'optimizer': 'adam',
+                              'optimizer__global__weight_decay': 0.0005,
+                              'optimizer__global__lr': 0.001},
+            'expert_model_dir': './model_dir/expert_xgb_reg'
+            }
 
 
 def default_hparams_max(args):
-    return {'seed': args.seed, 'd_model': 1500, 'dropout': 0.0, 'monte_carlo_N': 5, 'use_monte_carlo_sim': True,
-            'no_mc_fill_val': 0.0, 'gamma': 0.97, 'episodes_to_train': 6, 'gae_lambda': 0.9571227000294775,
-            'ppo_eps': 0.2, 'ppo_batch': 1, 'ppo_epochs': 5, 'entropy_beta': 0.007430215554675442, 'bias_mode': 'max',
-            'use_true_reward': False,
-            'reward_params': {'num_layers': 2, 'd_model': 266, 'unit_type': 'lstm', 'demo_batch_size': 128,
-                              'irl_alg_num_iter': 3, 'use_attention': False, 'bidirectional': True,
-                              'dropout': 0.25291708374526056, 'use_validity_flag': -1, 'optimizer': 'sgd',
-                              'optimizer__global__weight_decay': 0.521947248227301,
-                              'optimizer__global__lr': 0.0008801674130176785},
-            'agent_params': {'unit_type': 'gru', 'num_layers': 2, 'stack_width': 1500, 'stack_depth': 200,
-                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.17523455325471454,
-                             'optimizer__global__lr': 0.0003196882198931584},
-            'critic_params': {'num_layers': 2, 'd_model': 256, 'unit_type': 'lstm', 'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.00020082856549588513,
-                              'optimizer__global__lr': 0.05525261546896301},
-            'expert_model_dir': './model_dir/expert_xgb_reg'}
+    return {'d_model': 1500,
+            'dropout': 0.0,
+            'monte_carlo_N': 5,
+            'use_monte_carlo_sim': True,
+            'no_mc_fill_val': 0.0,
+            'gamma': 0.97,
+            'episodes_to_train': 10,
+            'gae_lambda': 0.95,
+            'ppo_eps': 0.2,
+            'ppo_batch': 1,
+            'ppo_epochs': 5,
+            'entropy_beta': 0.01,
+            'bias_mode': args.bias_mode,
+            'use_true_reward': args.use_true_reward,
+            'reward_params': {'num_layers': 2,
+                              'd_model': 512,
+                              'unit_type': 'gru',
+                              'demo_batch_size': 32,
+                              'irl_alg_num_iter': 5,
+                              'dropout': 0.2,
+                              'use_attention': args.use_attention,
+                              'use_validity_flag': ~args.no_smiles_validity_flag,
+                              'bidirectional': True,
+                              'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.0005,
+                              'optimizer__global__lr': 0.001, },
+            'agent_params': {'unit_type': 'gru',
+                             'num_layers': 2,
+                             'stack_width': 1500,
+                             'stack_depth': 200,
+                             'optimizer': 'adadelta',
+                             'optimizer__global__weight_decay': 0.005,
+                             'optimizer__global__lr': 0.001},
+            'critic_params': {'num_layers': 2,
+                              'd_model': 256,
+                              'dropout': 0.2,
+                              'unit_type': 'gru',
+                              'optimizer': 'adam',
+                              'optimizer__global__weight_decay': 0.005,
+                              'optimizer__global__lr': 0.001},
+            'expert_model_dir': './model_dir/expert_xgb_reg'
+            }
 
 
 def get_hparam_config(args):
     return {'seed': ConstantParam(args.seed),
             'd_model': ConstantParam(1500),
-            'dropout': ConstantParam(0.),
+            'dropout': RealParam(),
             'monte_carlo_N': ConstantParam(5),
             'use_monte_carlo_sim': ConstantParam(True),
             'no_mc_fill_val': ConstantParam(0.0),
             'gamma': ConstantParam(0.97),
-            'episodes_to_train': DiscreteParam(min=5, max=10),
+            'episodes_to_train': ConstantParam(6),
             'gae_lambda': RealParam(0.9, max=0.999),
             'ppo_eps': ConstantParam(0.2),
             'ppo_batch': ConstantParam(1),
-            'ppo_epochs': DiscreteParam(2, max=10),
-            'entropy_beta': LogRealParam(),
+            'ppo_epochs': ConstantParam(3),
+            'entropy_beta': ConstantParam(0.05),
             'bias_mode': ConstantParam(args.bias_mode),
             'use_true_reward': ConstantParam(args.use_true_reward),
             'reward_params': DictParam({'num_layers': ConstantParam(2),
-                                        'd_model': DiscreteParam(min=128, max=512),
-                                        'unit_type': ConstantParam('lstm'),
+                                        'd_model': DiscreteParam(min=128, max=500),
+                                        'unit_type': ConstantParam('gru'),
                                         'demo_batch_size': ConstantParam(128),
                                         'irl_alg_num_iter': DiscreteParam(2, max=10),
                                         'use_attention': ConstantParam(False),
@@ -607,14 +660,14 @@ def get_hparam_config(args):
                                        'stack_width': ConstantParam(1500),
                                        'stack_depth': ConstantParam(200),
                                        'optimizer': ConstantParam('adadelta'),
-                                       'optimizer__global__weight_decay': LogRealParam(),
-                                       'optimizer__global__lr': LogRealParam()}),
+                                       'optimizer__global__weight_decay': ConstantParam(0.005),
+                                       'optimizer__global__lr': ConstantParam(0.001)}),
             'critic_params': DictParam({'num_layers': ConstantParam(2),
-                                        'd_model': ConstantParam(256),
-                                        'unit_type': ConstantParam('lstm'),
-                                        'optimizer': ConstantParam('adadelta'),
-                                        'optimizer__global__weight_decay': LogRealParam(),
-                                        'optimizer__global__lr': LogRealParam()}),
+                                        'd_model': ConstantParam(128),
+                                        'unit_type': ConstantParam('gru'),
+                                        'optimizer': ConstantParam('adam'),
+                                        'optimizer__global__weight_decay': ConstantParam(0.0005),
+                                        'optimizer__global__lr': ConstantParam(0.001)}),
             'expert_model_dir': ConstantParam('./model_dir/expert_xgb_reg')
             }
 

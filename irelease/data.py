@@ -9,7 +9,7 @@ from irelease.utils import read_smi_file, tokenize, read_object_property_file, s
 class GeneratorData(object):
 
     def __init__(self, training_data_path, tokens=None, start_token='<',
-                 end_token='>', pad_symbol=' ', max_len=120, use_cuda=None,
+                 end_token='>', pad_symbol=' ', max_len=120, use_cuda=None, seed=None,
                  **kwargs):
         """
         Constructor for the GeneratorData object.
@@ -49,6 +49,8 @@ class GeneratorData(object):
 
         """
         super(GeneratorData, self).__init__()
+        if seed:
+            np.random.seed(seed)
 
         if 'cols_to_read' not in kwargs:
             kwargs['cols_to_read'] = []
