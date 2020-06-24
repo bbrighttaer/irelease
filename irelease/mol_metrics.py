@@ -358,6 +358,38 @@ def read_smi(filename):
 
 
 # ====== diversity metric
+def calculate_internal_diversity(smiles, ref_smiles ,radius=4):
+    """
+    Calculates internal diversity of the given compounds.
+    See http://arxiv.org/abs/1708.08227
+
+    Arguments:
+    ------------
+    :param smiles: list or tuple
+        Compounds to be used for calculating internal diversity
+    :param radius: int
+        The circular fingerprint radius (NB: 2 corresponds to ECFP4)
+    :return: float
+        internal diversity value
+    """
+    diversity = np.zeros((len(smiles), len(smiles)))
+    mols = []
+    for s in smiles:
+        mol = Chem.MolFromSmiles(s)
+        if mol is not None:
+            mols.append(mol)
+    compounds = [AllChem.GetMorganFingerprint(m, radius) for m in mols]
+    hist = {}
+    for i in range(len(compounds)):
+        c1 = compounds[i]
+        for j, c2 in enumerate(compounds):
+            if (c1, c2) in hist:
+                td = hist[(c1, c2)]
+            else:
+                td = 1 - DataStructs.TanimotoSimilarity(c1, c2)
+                hist[(c1, c2)] = hist[(c2, c1)] = td
+            diversity[i, j] = td
+    return diversity
 
 def batch_internal_diversity(smiles, set_smiles=None):
     """
@@ -717,6 +749,7 @@ def get_mol_metrics():
     metrics['hard_novelty'] = batch_hardnovelty
     metrics['soft_novelty'] = batch_softnovelty
     metrics['external_diversity'] = batch_external_diversity
+    metrics['internal_diversity_2'] = calculate_internal_diversity
     metrics['internal_diversity'] = batch_internal_diversity
     metrics['conciseness'] = batch_conciseness
     metrics['solubility'] = batch_solubility

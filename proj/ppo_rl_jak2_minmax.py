@@ -2,7 +2,7 @@
 # Project: GPMT
 # Date: 4/8/2020
 # Time: 8:02 PM
-# File: ppo_rl_logp.py
+# File: ppo_rl_jak2_minmax.py
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
@@ -40,7 +40,7 @@ from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tenso
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
-seeds = [0, 5, 10]
+seeds = [0]
 
 if torch.cuda.is_available():
     dvc_id = 3
@@ -337,9 +337,9 @@ class IReLeaSE(Trainer):
                             # best_score = -1.
                             break
                         print(f'Mean value of predictions = {mean_preds}, % of valid SMILES = {per_valid}')
-                        unbiased_smiles_mean_pred.append(baseline_score)
-                        biased_smiles_mean_pred.append(demo_score)
-                        gen_smiles_mean_pred.append(mean_preds)
+                        unbiased_smiles_mean_pred.append(float(baseline_score))
+                        biased_smiles_mean_pred.append(float(demo_score))
+                        gen_smiles_mean_pred.append(float(mean_preds))
                         tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
@@ -514,7 +514,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.bias_mode, flags.model_dir, flags.pretrained_model,
                                      sim_data_node=data_node,
-                                     n_episodes=150,
+                                     n_episodes=100,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -533,7 +533,7 @@ def main(flags):
                                      f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
-    # sim_data.to_json(path="./analysis/")
+    sim_data.to_json(path="./analysis/")
 
 
 def default_hparams_min(args):

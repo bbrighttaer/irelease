@@ -319,9 +319,9 @@ class IReLeaSE(Trainer):
                         print(f'Mean value of predictions = {mean_preds}, '
                               f'% of valid SMILES = {per_valid}, '
                               f'% in drug-like region={percentage_in_threshold}')
-                        unbiased_smiles_mean_pred.append(baseline_score)
-                        biased_smiles_mean_pred.append(demo_score)
-                        gen_smiles_mean_pred.append(mean_preds)
+                        unbiased_smiles_mean_pred.append(float(baseline_score))
+                        biased_smiles_mean_pred.append(float(demo_score))
+                        gen_smiles_mean_pred.append(float(mean_preds))
                         tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
