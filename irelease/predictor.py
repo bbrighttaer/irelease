@@ -239,7 +239,7 @@ def get_drd2_activity_reward(smiles, predictor, invalid_reward=0.0):
     mol, pred, nan_smiles = predictor.predict([smiles])
     if len(nan_smiles) == 1:
         return invalid_reward
-    return pred[0]
+    return -1 + 2 * pred[0]
 
 
 def get_jak2_max_reward(smiles, predictor, invalid_reward=0.0):

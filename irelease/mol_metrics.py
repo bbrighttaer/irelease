@@ -358,7 +358,7 @@ def read_smi(filename):
 
 
 # ====== diversity metric
-def calculate_internal_diversity(smiles, ref_smiles ,radius=4):
+def calculate_internal_diversity(smiles, ref_smiles,radius=4):
     """
     Calculates internal diversity of the given compounds.
     See http://arxiv.org/abs/1708.08227
@@ -749,7 +749,7 @@ def get_mol_metrics():
     metrics['hard_novelty'] = batch_hardnovelty
     metrics['soft_novelty'] = batch_softnovelty
     metrics['external_diversity'] = batch_external_diversity
-    metrics['internal_diversity_2'] = calculate_internal_diversity
+    # metrics['internal_diversity_2'] = calculate_internal_diversity
     metrics['internal_diversity'] = batch_internal_diversity
     metrics['conciseness'] = batch_conciseness
     metrics['solubility'] = batch_solubility
