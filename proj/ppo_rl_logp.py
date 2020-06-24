@@ -43,7 +43,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -346,7 +346,11 @@ class IReLeaSE(Trainer):
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-                            # break
+
+                        if best_score >= demo_score:
+                            print(f'threshold reached, best score={best_score}, '
+                                  f'threshold={demo_score}, training completed')
+                            break
 
                         if done_episodes == n_episodes:
                             print('Training completed!')

@@ -34,7 +34,7 @@ from irelease.reward import RewardFunction
 from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, REINFORCE, Trajectory, EpisodeStep
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
-    time_since, generate_smiles, DummyException
+    time_since, generate_smiles, DummyException, ExpAverage
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -42,7 +42,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 1
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -232,6 +232,7 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         best_score = -10
+        exp_avg = ExpAverage(beta=0.6)
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -319,15 +320,19 @@ class IReLeaSE(Trainer):
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        hscore = (2.0 * eval_score * score) / (eval_score + score)
-                        tracker.track('H-score', hscore, step_idx)
-                        if mean_rewards > best_score:
+                        exp_avg.update(score)
+                        if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
-                            best_score = mean_rewards
+                            best_score = exp_avg.value
 
                         if done_episodes == n_episodes:
                             print('Training completed!')
+                            break
+
+                        if best_score >= demo_score:
+                            print(f'threshold reached, best score={best_score}, '
+                                  f'threshold={demo_score}, training completed')
                             break
 
                     if batch_episodes < episodes_to_train:
@@ -447,7 +452,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=500,
+                                     n_episodes=200,
                                      learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
@@ -457,7 +462,7 @@ def main(flags):
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
                                 name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
+                                     f'_reinforce_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
@@ -488,7 +493,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
+                             'num_layers': 2,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
@@ -569,6 +574,9 @@ if __name__ == '__main__':
                         type=str,
                         default="bayopt_search",
                         help="Hyperparameter search algorithm to use. One of [bayopt_search, random_search]")
+    parser.add_argument('--use_attention',
+                        action='store_true',
+                        help='Whether to use additive attention')
     parser.add_argument('--use_true_reward',
                         action='store_true',
                         help='If true then no reward function would be learned but the true reward would be used.'
