@@ -18,7 +18,7 @@ from irelease.predictor import RNNPredictor
 from irelease.utils import get_default_tokens, init_hidden, init_cell, init_stack
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -26,7 +26,8 @@ else:
     device = 'cpu'
     use_cuda = None
 
-__all__ = ['agent_net_hidden_states_func', 'data_provider', 'initialize', 'evaluate', 'device', 'use_cuda']
+__all__ = ['agent_net_hidden_states_func', 'data_provider', 'initialize', 'evaluate', 'device', 'use_cuda',
+          'load_model', 'logp_ppo_hparams']
 
 
 def agent_net_hidden_states_func(batch_size, num_layers, hidden_size, stack_depth, stack_width, unit_type):
@@ -153,3 +154,54 @@ def evaluate(generated_smiles, ref_smiles):
     for metric in mol_metrics:
         res_dict[metric] = np.mean(mol_metrics[metric](smiles, ref_smiles))
     return res_dict
+
+def load_model(path):
+    return torch.load(path, map_location=torch.device(device))
+
+def logp_ppo_hparams():
+    return {'d_model': 1500,
+            'dropout': 0.0,
+            'monte_carlo_N': 5,
+            'use_monte_carlo_sim': True,
+            'no_mc_fill_val': 0.0,
+            'gamma': 0.97,
+            'episodes_to_train': 10,
+            'gae_lambda': 0.95,
+            'ppo_eps': 0.2,
+            'ppo_batch': 1,
+            'ppo_epochs': 5,
+            'entropy_beta': 0.01,
+            'use_true_reward': False,
+            'reward_params': {'num_layers': 2,
+                              'd_model': 512,
+                              'unit_type': 'gru',
+                              'demo_batch_size': 32,
+                              'irl_alg_num_iter': 5,
+                              'dropout': 0.2,
+                              'use_attention': False,
+                              'use_validity_flag': True,
+                              'bidirectional': True,
+                              'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.0005,
+                              'optimizer__global__lr': 0.001, },
+            'agent_params': {'unit_type': 'gru',
+                             'num_layers': 2,
+                             'stack_width': 1500,
+                             'stack_depth': 200,
+                             'optimizer': 'adadelta',
+                             'optimizer__global__weight_decay': 0.0000,
+                             'optimizer__global__lr': 0.001},
+            'critic_params': {'num_layers': 2,
+                              'd_model': 256,
+                              'dropout': 0.2,
+                              'unit_type': 'lstm',
+                              'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.00005,
+                              'optimizer__global__lr': 0.001},
+            'expert_model_params': {'model_dir': '../model_dir/expert_rnn_reg',
+                                    'd_model': 128,
+                                    'rnn_num_layers': 2,
+                                    'dropout': 0.8,
+                                    'is_bidirectional': False,
+                                    'unit_type': 'lstm'}
+            }
