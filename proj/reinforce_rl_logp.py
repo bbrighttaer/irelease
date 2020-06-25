@@ -296,6 +296,7 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         score = np.mean(predictions)
+                        exp_avg.update(score)
                         try:
                             percentage_in_threshold = np.sum((predictions >= 0.0) &
                                                              (predictions <= 5.0)) / len(predictions)
@@ -308,7 +309,7 @@ class IReLeaSE(Trainer):
                         unbiased_smiles_mean_pred.append(float(baseline_score))
                         biased_smiles_mean_pred.append(float(demo_score))
                         gen_smiles_mean_pred.append(float(score))
-                        tb_writer.add_scalars('qsar_score', {'sampled': score,
+                        tb_writer.add_scalars('qsar_score', {'sampled': exp_avg.value,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
                         tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,

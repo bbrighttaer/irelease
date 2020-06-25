@@ -27,7 +27,7 @@ else:
     use_cuda = None
 
 __all__ = ['agent_net_hidden_states_func', 'data_provider', 'initialize', 'evaluate', 'device', 'use_cuda',
-          'load_model', 'logp_ppo_hparams']
+           'load_model_weights', 'logp_ppo_hparams', 'logp_reinforce_hparams']
 
 
 def agent_net_hidden_states_func(batch_size, num_layers, hidden_size, stack_depth, stack_width, unit_type):
@@ -155,8 +155,10 @@ def evaluate(generated_smiles, ref_smiles):
         res_dict[metric] = np.mean(mol_metrics[metric](smiles, ref_smiles))
     return res_dict
 
-def load_model(path):
+
+def load_model_weights(path):
     return torch.load(path, map_location=torch.device(device))
+
 
 def logp_ppo_hparams():
     return {'d_model': 1500,
@@ -198,6 +200,47 @@ def logp_ppo_hparams():
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.00005,
                               'optimizer__global__lr': 0.001},
+            'expert_model_params': {'model_dir': '../model_dir/expert_rnn_reg',
+                                    'd_model': 128,
+                                    'rnn_num_layers': 2,
+                                    'dropout': 0.8,
+                                    'is_bidirectional': False,
+                                    'unit_type': 'lstm'}
+            }
+
+
+def logp_reinforce_hparams():
+    return {'d_model': 1500,
+            'dropout': 0.0,
+            'monte_carlo_N': 5,
+            'use_monte_carlo_sim': False,
+            'no_mc_fill_val': 0.0,
+            'gamma': 0.97,
+            'episodes_to_train': 10,
+            'reinforce_max_norm': None,
+            'lr_decay_gamma': 0.1,
+            'lr_decay_step_size': 1000,
+            'xent_lambda': 0.0,
+            'use_true_reward': False,
+            'reward_params': {'num_layers': 2,
+                              'd_model': 256,
+                              'unit_type': 'lstm',
+                              'demo_batch_size': 32,
+                              'irl_alg_num_iter': 5,
+                              'dropout': 0.0,
+                              'use_attention': False,
+                              'use_validity_flag': True,
+                              'bidirectional': True,
+                              'optimizer': 'adadelta',
+                              'optimizer__global__weight_decay': 0.0000,
+                              'optimizer__global__lr': 0.001, },
+            'agent_params': {'unit_type': 'gru',
+                             'num_layers': 2,
+                             'stack_width': 1500,
+                             'stack_depth': 200,
+                             'optimizer': 'adadelta',
+                             'optimizer__global__weight_decay': 0.0000,
+                             'optimizer__global__lr': 0.001},
             'expert_model_params': {'model_dir': '../model_dir/expert_rnn_reg',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,

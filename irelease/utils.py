@@ -517,7 +517,7 @@ class GradStats(object):
 
 
 def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>', max_len=100, num_samples=5,
-                    gen_type='rnn', is_train=True, return_probs=False, verbose=False):
+                    gen_type='rnn', is_train=True, return_probs=False, return_logits=False, verbose=False):
     """
     Generates SMILES strings using the model/generator given.
 
@@ -589,11 +589,14 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
     else:
         loop = range(max_len - 1)
     probs_out = []
+    logits = []
     for i in loop:
         if gen_type == 'rnn':
             outputs = generator([inp] + hidden_states)
             output, hidden_states = outputs[0], outputs[1:]
             output = output.detach().cpu()
+            logits.append(output)
+
         elif gen_type == 'trans':
             stack = init_stack_2d(num_samples, inp.shape[-1], init_args['stack_depth'],
                                   init_args['stack_width'],
@@ -639,6 +642,9 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
     probs_out = torch.cat(probs_out).cpu().numpy()
     if return_probs:
         return string_samples, probs_out
+    if return_logits:
+        logits = torch.cat(logits).numpy()
+        return string_samples, logits
     return string_samples
 
 
