@@ -593,6 +593,7 @@ class RewardNetRNN(nn.Module):
         :param inp: list / tuple
            [0] Input from encoder of shape (seq_len, batch_size, embed_dim)
            [1] SMILES validity flag
+        :param return_logits:
         :return: tensor
             Reward of shape (batch_size, 1)
         """
