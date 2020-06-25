@@ -453,7 +453,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=600,
+                                     n_episodes=1000,
                                      learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
