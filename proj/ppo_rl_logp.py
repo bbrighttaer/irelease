@@ -488,7 +488,7 @@ def main(flags):
             irelease.save_model(results['model'][2],
                                 path=flags.model_dir,
                                 name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
+                                     f'_ppo_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
