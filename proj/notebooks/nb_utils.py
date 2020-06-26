@@ -16,7 +16,7 @@ from irelease.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayer
 from irelease.mol_metrics import verify_sequence, get_mol_metrics
 from irelease.predictor import RNNPredictor
 from irelease.utils import get_default_tokens, init_hidden, init_cell, init_stack, canonical_smiles, seq2tensor, \
-    pad_sequences
+    pad_sequences, ExpAverage
 
 if torch.cuda.is_available():
     dvc_id = 0
@@ -26,9 +26,6 @@ if torch.cuda.is_available():
 else:
     device = 'cpu'
     use_cuda = None
-
-__all__ = ['agent_net_hidden_states_func', 'data_provider', 'initialize', 'evaluate', 'device', 'use_cuda',
-           'load_model_weights', 'logp_ppo_hparams', 'logp_reinforce_hparams', 'smiles_to_tensor']
 
 
 def agent_net_hidden_states_func(batch_size, num_layers, hidden_size, stack_depth, stack_width, unit_type):
@@ -52,7 +49,7 @@ def initialize(hparams, demo_data_gen, unbiased_data_gen, has_critic):
     # Embeddings provider
     encoder = Encoder(vocab_size=demo_data_gen.n_characters, d_model=hparams['d_model'],
                       padding_idx=demo_data_gen.char2idx[demo_data_gen.pad_symbol],
-                      dropout=hparams['dropout'], return_tuple=True)
+                      dropout=hparams['dropout'], return_tuple=True).eval()
 
     # Agent entities
     rnn_layers = []
@@ -75,7 +72,7 @@ def initialize(hparams, demo_data_gen, unbiased_data_gen, has_critic):
                                              hidden_size=hparams['d_model'],
                                              bidirectional=False,
                                              bias=True))
-    agent_net = agent_net.to(device)
+    agent_net = agent_net.to(device).eval()
     init_state_args = {'num_layers': hparams['agent_params']['num_layers'],
                        'hidden_size': hparams['d_model'],
                        'stack_depth': hparams['agent_params']['stack_depth'],
@@ -87,7 +84,7 @@ def initialize(hparams, demo_data_gen, unbiased_data_gen, has_critic):
                                          unit_type=hparams['critic_params']['unit_type'],
                                          dropout=hparams['critic_params']['dropout'],
                                          num_layers=hparams['critic_params']['num_layers']))
-        critic = critic.to(device)
+        critic = critic.to(device).eval()
     else:
         critic = None
 
@@ -109,7 +106,7 @@ def initialize(hparams, demo_data_gen, unbiased_data_gen, has_critic):
                  'critic_net': critic,
                  'reward_net': reward_net,
                  'reward_net_rnn': reward_net_rnn,
-                 'encoder': encoder,
+                 'encoder': encoder.eval(),
                  'gamma': hparams['gamma'],
                  'expert_model': expert_model,
                  'demo_data_gen': demo_data_gen,
@@ -261,3 +258,12 @@ def smiles_to_tensor(smiles):
     inp, _ = seq2tensor(smiles, tokens=get_default_tokens())
     inp = torch.from_numpy(inp).long().to(device)
     return inp, valid_vec
+
+
+def smoothing_values(values, beta=0.9):
+    exp_avg = ExpAverage(beta)
+    smooth_v = []
+    for v in values:
+        exp_avg.update(v)
+        smooth_v.append(exp_avg.value)
+    return smooth_v

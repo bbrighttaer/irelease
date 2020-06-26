@@ -590,13 +590,14 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
         loop = range(max_len - 1)
     probs_out = []
     logits = []
+    hidden_neurons = []
     for i in loop:
         if gen_type == 'rnn':
             outputs = generator([inp] + hidden_states)
             output, hidden_states = outputs[0], outputs[1:]
             output = output.detach().cpu()
             logits.append(output)
-
+            hidden_neurons.append(hidden_states[-1][0])
         elif gen_type == 'trans':
             stack = init_stack_2d(num_samples, inp.shape[-1], init_args['stack_depth'],
                                   init_args['stack_width'],
@@ -644,7 +645,8 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
         return string_samples, probs_out
     if return_logits:
         logits = torch.cat(logits).numpy()
-        return string_samples, logits
+        hidden_neurons = torch.cat(hidden_neurons).numpy()
+        return string_samples, logits, hidden_neurons
     return string_samples
 
 
