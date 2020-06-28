@@ -310,7 +310,6 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         mean_preds = np.mean(predictions)
-                        exp_avg.update(mean_preds)
                         try:
                             percentage_in_threshold = np.sum((predictions >= 0.0) &
                                                              (predictions <= 5.0)) / len(predictions)
@@ -323,7 +322,7 @@ class IReLeaSE(Trainer):
                         unbiased_smiles_mean_pred.append(float(baseline_score))
                         biased_smiles_mean_pred.append(float(demo_score))
                         gen_smiles_mean_pred.append(float(mean_preds))
-                        tb_writer.add_scalars('qsar_score', {'sampled': exp_avg.value,
+                        tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
                         tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
@@ -341,6 +340,7 @@ class IReLeaSE(Trainer):
                         score = 2 * np.exp(mean_preds) + max(-np.exp(mean_preds), np.log(per_valid)) + max(
                             -np.exp(mean_preds), diversity) + smile_length
                         tracker.track('score', score, step_idx)
+                        exp_avg.update(mean_preds)
                         if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
