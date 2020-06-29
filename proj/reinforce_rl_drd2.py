@@ -288,7 +288,7 @@ class IReLeaSE(Trainer):
 
                     new_rewards = exp_source.pop_total_rewards()
                     if new_rewards:
-                        reward = new_rewards[0]
+                        reward = float(new_rewards[0])
                         done_episodes += 1
                         total_rewards.append(reward)
                         mean_rewards = float(np.mean(total_rewards[-100:]))
@@ -385,7 +385,7 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + '_IReLeaSE-ppo_with_irl_' + ('attn' if flags.use_attention else 'no_attn') + (
+    sim_label = flags.exp_name + '_IReLeaSE-REINFORCE_' + ('no_irl' if flags.use_true_reward else 'with_irl') + (
         '_no_vflag' if flags.no_smiles_validity_flag else '')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
@@ -459,7 +459,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=400,
+                                     n_episodes=600,
                                      learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
@@ -469,7 +469,7 @@ def main(flags):
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
                                 name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
+                                     f'_reinforce_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
@@ -495,22 +495,23 @@ def default_hparams(args):
                               'irl_alg_num_iter': 5,
                               'use_attention': args.use_attention,
                               'use_validity_flag': ~args.no_smiles_validity_flag,
+                              'dropout': 0.0,
                               'bidirectional': True,
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
+                             'num_layers': 2,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
                              'optimizer__global__weight_decay': 0.0000,
                              'optimizer__global__lr': 0.001},
-            'expert_model_params': {'model_dir': './model_dir/expert',
+            'expert_model_params': {'model_dir': './model_dir/expert_rnn_bin',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,
                                     'dropout': 0.8,
-                                    'is_bidirectional': False,
+                                    'is_bidirectional': True,
                                     'unit_type': 'lstm'}
             }
 
