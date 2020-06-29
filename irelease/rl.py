@@ -197,7 +197,7 @@ class REINFORCE(DRLAlgorithm):
                 output, hidden_states = outputs[0], outputs[1:]
                 log_prob = torch.log_softmax(output.view(1, -1), dim=1)
                 top_i = actions[p]
-                rl_loss = rl_loss - (q_values[p] * log_prob[0, top_i])
+                rl_loss = rl_loss - (float(q_values[p] ) * log_prob[0, top_i])
 
         # Ensure pretraining effort isn't wiped out.
         xent_loss = 0.
