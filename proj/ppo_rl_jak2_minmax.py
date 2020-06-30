@@ -530,7 +530,7 @@ def main(flags):
                                 path=flags.model_dir,
                                 name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
+                                     f'_ppo_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
