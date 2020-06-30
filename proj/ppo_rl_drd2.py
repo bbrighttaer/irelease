@@ -342,7 +342,7 @@ class IReLeaSE(Trainer):
                         if is_hsearch and per_valid < 0.5:
                             # best_score = 0.
                             break
-                        if done_episodes == n_episodes:
+                        if done_episodes == n_episodes or mean_preds >= demo_score:
                             print('Training completed!')
                             break
 
