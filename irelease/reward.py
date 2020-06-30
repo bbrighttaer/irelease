@@ -36,7 +36,8 @@ class RewardFunction:
     """
 
     def __init__(self, reward_net, mc_policy, actions, mc_max_sims=50, max_len=100, end_char='>', device='cpu',
-                 expert_func=None, use_mc=True, no_mc_fill_val=0.0, use_true_reward=False, true_reward_func=None):
+                 expert_func=None, use_mc=True, no_mc_fill_val=0.0, use_true_reward=False, true_reward_func=None,
+                 reward_wrapper=None):
         if use_true_reward:
             assert (true_reward_func is not None), 'If true reward should be used then the ' \
                                                    'true reward function must be supplied'
@@ -53,6 +54,11 @@ class RewardFunction:
         self.mc_enabled = use_mc
         self.no_mc_fill_val = no_mc_fill_val
         self.use_true_reward = use_true_reward
+        if reward_wrapper is None:
+            self.reward_wrapper = lambda x: x
+        else:
+            assert (callable(reward_wrapper))
+            self.reward_wrapper = reward_wrapper
 
     @torch.no_grad()
     def __call__(self, x, use_mc):
@@ -87,7 +93,7 @@ class RewardFunction:
                 inp, _ = seq2tensor([state], tokens=self.actions)
                 inp = torch.from_numpy(inp).long().to(self.device)
                 reward = self.model([inp, valid_vec]).squeeze().item()
-            return reward
+            return self.reward_wrapper(reward)
 
     def expert_reward(self, x):
         if self.expert_func:
