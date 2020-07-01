@@ -220,7 +220,7 @@ class IReLeaSE(Trainer):
 
     @staticmethod
     def train(init_args, agent_net_path=None, agent_net_name=None, seed=0, n_episodes=500, sim_data_node=None,
-              tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True):
+              tb_writer=None, is_hsearch=False, n_to_generate=200, learn_irl=True, bias_mode='max'):
         tb_writer = tb_writer()
         agent = init_args['agent']
         probs_reg = init_args['probs_reg']
@@ -235,6 +235,7 @@ class IReLeaSE(Trainer):
         best_model_wts = None
         best_score = 0.
         exp_avg = ExpAverage(beta=0.6)
+        mean_preds_exp_avg = ExpAverage(beta=0.6)
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -297,19 +298,20 @@ class IReLeaSE(Trainer):
                             samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
-                        score = np.mean(predictions)
+                        mean_preds = np.mean(predictions)
+                        mean_preds_exp_avg.update(float(mean_preds))
                         try:
                             percentage_in_threshold = np.sum((predictions >= 7.0)) / len(predictions)
                         except:
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
-                        print(f'Mean value of predictions = {score}, '
+                        print(f'Mean value of predictions = {mean_preds}, '
                               f'% of valid SMILES = {per_valid}, '
                               f'% in drug-like region={percentage_in_threshold}')
                         unbiased_smiles_mean_pred.append(float(baseline_score))
                         biased_smiles_mean_pred.append(float(demo_score))
-                        gen_smiles_mean_pred.append(float(score))
-                        tb_writer.add_scalars('qsar_score', {'sampled': score,
+                        gen_smiles_mean_pred.append(float(mean_preds))
+                        tb_writer.add_scalars('qsar_score', {'sampled': mean_preds,
                                                              'baseline': baseline_score,
                                                              'demo_data': demo_score}, step_idx)
                         tb_writer.add_scalars('SMILES stats', {'per. of valid': per_valid,
@@ -322,12 +324,21 @@ class IReLeaSE(Trainer):
                         for k in eval_dict:
                             tracker.track(k, eval_dict[k], step_idx)
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
-                        exp_avg.update(score)
+                        if bias_mode == 'max':
+                            diff = mean_preds - demo_score
+                            stop_condition = mean_preds_exp_avg.value >= demo_score
+                        else:
+                            diff = demo_score - mean_preds
+                            stop_condition = mean_preds_exp_avg.value <= demo_score
+                        exp_avg.update(np.exp(diff))
                         if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-
+                        if stop_condition:
+                            print(f'threshold reached, best score={mean_preds_exp_avg.value}, '
+                                  f'threshold={demo_score}, training completed')
+                            break
                         if done_episodes == n_episodes:
                             print('Training completed!')
                             break

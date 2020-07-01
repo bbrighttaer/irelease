@@ -334,6 +334,10 @@ class IReLeaSE(Trainer):
                         if is_hsearch and per_valid < 0.5:
                             # best_score = 0.
                             break
+                        if best_score >= demo_score:
+                            print(f'threshold reached, best score={best_score}, '
+                                  f'threshold={demo_score}, training completed')
+                            break
                         if done_episodes == n_episodes:
                             print('Training completed!')
                             break

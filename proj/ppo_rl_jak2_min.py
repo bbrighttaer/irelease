@@ -246,6 +246,7 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         exp_avg = ExpAverage(beta=0.6)
+        mean_preds_exp_avg = ExpAverage(beta=0.6)
         best_score = -1.
 
         # load pretrained model
@@ -323,6 +324,7 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         mean_preds = np.nanmean(predictions)
+                        mean_preds_exp_avg.update(mean_preds)
                         if math.isnan(mean_preds) or math.isinf(mean_preds):
                             print(f'mean preds is {mean_preds}, terminating')
                             # best_score = -1.
@@ -373,7 +375,10 @@ class IReLeaSE(Trainer):
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-
+                        if mean_preds_exp_avg.value <= demo_score:
+                            print(f'threshold reached, best score={mean_preds_exp_avg.value}, '
+                                  f'threshold={demo_score}, training completed')
+                            break
                         if done_episodes == n_episodes:
                             print('Training completed!')
                             break

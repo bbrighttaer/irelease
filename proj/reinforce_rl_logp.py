@@ -326,7 +326,10 @@ class IReLeaSE(Trainer):
                             best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-
+                        if best_score >= demo_score:
+                            print(f'threshold reached, best score={best_score}, '
+                                  f'threshold={demo_score}, training completed')
+                            break
                         if done_episodes == n_episodes:
                             print('Training completed!')
                             break
@@ -453,7 +456,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=1000,
+                                     n_episodes=600,
                                      learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
