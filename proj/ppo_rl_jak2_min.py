@@ -509,21 +509,21 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, flags.reward_model,
                                      sim_data_node=data_node,
-                                     n_episodes=100,
+                                     n_episodes=200,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                name=f'{flags.exp_name}_min_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_agent_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                name=f'{flags.exp_name}_min_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_critic_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][2],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                name=f'{flags.exp_name}_min_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
@@ -544,7 +544,7 @@ def default_hparams(args):
             'ppo_batch': 1,
             'ppo_epochs': 3,
             'entropy_beta': 0.05,
-            'bias_mode': args.bias_mode,
+            'bias_mode': 'min',
             'use_true_reward': args.use_true_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 512,
