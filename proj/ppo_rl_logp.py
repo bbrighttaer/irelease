@@ -515,7 +515,7 @@ def default_hparams(args):
                               'irl_alg_num_iter': 5,
                               'dropout': 0.2,
                               'use_attention': args.use_attention,
-                              'use_validity_flag': ~args.no_smiles_validity_flag,
+                              'use_validity_flag': not args.no_smiles_validity_flag,
                               'bidirectional': True,
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.0005,
@@ -565,7 +565,7 @@ def get_hparam_config(args):
                                         'use_attention': ConstantParam(False),
                                         'bidirectional': ConstantParam(True),
                                         'dropout': RealParam(),
-                                        'use_validity_flag': ConstantParam(~args.no_smiles_validity_flag),
+                                        'use_validity_flag': ConstantParam(not args.no_smiles_validity_flag),
                                         'optimizer': CategoricalParam(
                                             choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
                                         'optimizer__global__weight_decay': LogRealParam(),

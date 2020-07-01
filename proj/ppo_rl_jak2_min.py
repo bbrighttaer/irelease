@@ -521,11 +521,11 @@ def main(flags):
                                 name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_critic_{date_label}_{results["score"]}_{results["epoch"]}')
-            irelease.save_model(results['model'][2],
-                                path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
-                                     f'{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_ppo_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
+            # irelease.save_model(results['model'][2],
+            #                     path=flags.model_dir,
+            #                     name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+            #                          f'{hyper_params["agent_params"]["unit_type"]}'
+            #                          f'_ppo_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
@@ -553,7 +553,7 @@ def default_hparams(args):
                               'irl_alg_num_iter': 5,
                               'dropout': 0.2,
                               'use_attention': args.use_attention,
-                              'use_validity_flag': ~args.no_smiles_validity_flag,
+                              'use_validity_flag': not args.no_smiles_validity_flag,
                               'bidirectional': True,
                               'optimizer': 'adadelta',
                               'optimizer__global__weight_decay': 0.0005,
@@ -600,7 +600,7 @@ def get_hparam_config(args):
                                         'use_attention': ConstantParam(False),
                                         'bidirectional': ConstantParam(True),
                                         'dropout': RealParam(),
-                                        'use_validity_flag': ConstantParam(~args.no_smiles_validity_flag),
+                                        'use_validity_flag': ConstantParam(not args.no_smiles_validity_flag),
                                         'optimizer': CategoricalParam(
                                             choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
                                         'optimizer__global__weight_decay': LogRealParam(),

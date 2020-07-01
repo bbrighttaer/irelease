@@ -126,7 +126,8 @@ class IReLeaSE(Trainer):
                             gamma=hparams['gamma'],
                             grad_clipping=hparams['reinforce_max_norm'],
                             lr_decay_gamma=hparams['lr_decay_gamma'],
-                            lr_decay_step=hparams['lr_decay_step_size'])
+                            lr_decay_step=hparams['lr_decay_step_size'],
+                            delayed_reward=not hparams['use_monte_carlo_sim'])
 
         # Reward function entities
         reward_net = nn.Sequential(encoder,
@@ -494,7 +495,7 @@ def default_hparams(args):
                               'demo_batch_size': 32,
                               'irl_alg_num_iter': 5,
                               'use_attention': args.use_attention,
-                              'use_validity_flag': ~args.no_smiles_validity_flag,
+                              'use_validity_flag': not args.no_smiles_validity_flag,
                               'dropout': 0.0,
                               'bidirectional': True,
                               'optimizer': 'adadelta',
@@ -537,7 +538,7 @@ def get_hparam_config(args):
                                         'use_attention': ConstantParam(False),
                                         'bidirectional': ConstantParam(True),
                                         'dropout': RealParam(),
-                                        'use_validity_flag': ConstantParam(~args.no_smiles_validity_flag),
+                                        'use_validity_flag': ConstantParam(not args.no_smiles_validity_flag),
                                         'optimizer': CategoricalParam(
                                             choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
                                         'optimizer__global__weight_decay': LogRealParam(),

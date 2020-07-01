@@ -137,6 +137,23 @@ def calc_Qvals(rewards, gamma):
     return list(reversed(qval))
 
 
+def calc_delayed_rewards(rewards, gamma):
+    """
+    calculates the ReLeaSE style of rewards:
+    R(s_t) = gamma^t * r(s_T)
+
+    :param rewards:
+    :param gamma:
+    :return:
+    """
+    vals = []
+    discounted_reward = rewards[-1]
+    for _ in range(len(rewards)):
+        vals.append(discounted_reward)
+        discounted_reward = discounted_reward * gamma
+    return vals
+
+
 def unpack_batch(trajs, gamma):
     batch_states, batch_actions, batch_qvals = [], [], []
     for traj in trajs:
@@ -149,19 +166,23 @@ def unpack_batch(trajs, gamma):
     return batch_states, batch_actions, batch_qvals
 
 
-def unpack_trajectory(traj, gamma):
+def unpack_trajectory(traj, gamma, delayed_reward):
     states, actions, rewards = [], [], []
     for exp in traj:
         states.append(exp.state)
         actions.append(exp.action)
         rewards.append(exp.reward)
-    q_values = calc_Qvals(rewards, gamma)
+    if delayed_reward:
+        q_values = calc_delayed_rewards(rewards, gamma)
+    else:
+        q_values = calc_Qvals(rewards, gamma)
     return states, actions, q_values
 
 
 class REINFORCE(DRLAlgorithm):
     def __init__(self, model, optimizer, initial_states_func, initial_states_args, gamma=0.97, grad_clipping=None,
-                 lr_decay_gamma=0.1, prior_data_gen=None, xent_lambda=0.3, lr_decay_step=100, device='cpu'):
+                 lr_decay_gamma=0.1, prior_data_gen=None, xent_lambda=0.3, lr_decay_step=100, device='cpu',
+                 delayed_reward=False):
         assert callable(initial_states_func)
         assert isinstance(initial_states_args, dict)
         self.model = model
@@ -174,6 +195,7 @@ class REINFORCE(DRLAlgorithm):
         self.grad_clipping = grad_clipping
         self.prior_data_gen = prior_data_gen
         self.xent_lambda = xent_lambda
+        self.delayed_reward = delayed_reward
 
     @torch.enable_grad()
     def fit(self, trajectories):
@@ -188,7 +210,7 @@ class REINFORCE(DRLAlgorithm):
         self.optimizer.zero_grad()
         for t in trange(len(trajectories), desc='REINFORCE opt...'):
             trajectory = trajectories[t]
-            states, actions, q_values = unpack_trajectory(trajectory, self.gamma)
+            states, actions, q_values = unpack_trajectory(trajectory, self.gamma, self.delayed_reward)
             (states, state_len), actions = _preprocess_states_actions(actions, states, self.device)
             hidden_states = self.initial_states_func(1, **self.initial_states_args)
             trajectory_input = states[-1]  # since the last state captures all previous states
@@ -197,7 +219,7 @@ class REINFORCE(DRLAlgorithm):
                 output, hidden_states = outputs[0], outputs[1:]
                 log_prob = torch.log_softmax(output.view(1, -1), dim=1)
                 top_i = actions[p]
-                rl_loss = rl_loss - (float(q_values[p] ) * log_prob[0, top_i])
+                rl_loss = rl_loss - (float(q_values[p]) * log_prob[0, top_i])
 
         # Ensure pretraining effort isn't wiped out.
         xent_loss = 0.
@@ -219,7 +241,7 @@ class REINFORCE(DRLAlgorithm):
         if self.grad_clipping is not None:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clipping)
         self.optimizer.step()
-        self.lr_scheduler.step()
+        # self.lr_scheduler.step()
         return rl_loss.item()
 
 
