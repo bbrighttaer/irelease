@@ -45,7 +45,7 @@ else:
     use_cuda = None
 
 
-class GpmtPretrain(Trainer):
+class IreleasePretrain(Trainer):
     @staticmethod
     def initialize(hparams, gen_data, *args, **kwargs):
         gen_data.set_batch_size(hparams['batch_size'])
@@ -194,7 +194,7 @@ class GpmtPretrain(Trainer):
 
                         # metrics
                         eval_dict = {}
-                        score = GpmtPretrain.evaluate(eval_dict, predictions, labels)
+                        score = IreleasePretrain.evaluate(eval_dict, predictions, labels)
 
                         # TBoard info
                         # tracker.track("%s/loss" % phase, loss.item(), tb_idx[phase].IncAndGet())
@@ -288,7 +288,7 @@ class GpmtPretrain(Trainer):
 
 
 def main(flags):
-    sim_label = 'GPMT-pretraining-Stack-RNN'
+    sim_label = flags.exp_name if flags.exp_name else 'Irelease-pretraining-Stack-RNN'
     if flags.eval:
         sim_label += '_eval'
     sim_data = DataNode(label=sim_label)
@@ -316,7 +316,7 @@ def main(flags):
         print('Running on dataset: %s' % flags.data_file)
         print('---------------------------------------------------')
 
-        trainer = GpmtPretrain()
+        trainer = IreleasePretrain()
         k = 1
         if flags["hparam_search"]:
             print("Hyperparameter search enabled: {}".format(flags["hparam_search_alg"]))
@@ -437,6 +437,8 @@ if __name__ == '__main__':
                         default=None,
                         type=str,
                         help="The filename of the model to be loaded from the directory specified in --model_dir")
+    parser.add_argument('--exp_name', type=str,
+                        help='Name for the experiment. This would be added to saved model names')
 
     args = parser.parse_args()
     flags = Flags()
