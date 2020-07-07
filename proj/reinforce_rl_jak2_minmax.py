@@ -505,7 +505,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 2,
+                             'num_layers': 1,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',

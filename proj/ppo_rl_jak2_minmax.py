@@ -31,7 +31,8 @@ from irelease.env import MoleculeEnv
 from irelease.model import Encoder, StackRNN, StackRNNLinear, \
     CriticRNN, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
 from irelease.mol_metrics import verify_sequence, get_mol_metrics
-from irelease.predictor import get_jak2_max_reward, get_jak2_min_reward, XGBPredictor
+from irelease.predictor import get_jak2_max_reward, get_jak2_min_reward, XGBPredictor, get_jak2_max_baseline_reward, \
+    get_jak2_min_baseline_reward
 from irelease.reward import RewardFunction
 from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewardLearningIRL, \
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
@@ -151,7 +152,11 @@ class IReLeaSE(Trainer):
             reward_net = reward_net.to(device)
 
         expert_model = XGBPredictor(hparams['expert_model_dir'])
-        true_reward_func = get_jak2_max_reward if hparams['bias_mode'] == 'max' else get_jak2_min_reward
+        if hparams['baseline_reward']:
+            true_reward_func = get_jak2_max_baseline_reward if hparams['bias_mode'] == 'max' \
+                else get_jak2_min_baseline_reward
+        else:
+            true_reward_func = get_jak2_max_reward if hparams['bias_mode'] == 'max' else get_jak2_min_reward
         reward_function = RewardFunction(reward_net, mc_policy=agent, actions=demo_data_gen.all_characters,
                                          device=device, use_mc=hparams['use_monte_carlo_sim'],
                                          mc_max_sims=hparams['monte_carlo_N'],
@@ -438,8 +443,9 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + '_' + flags.bias_mode + '_IReLeaSE-ppo_with_irl_' + (
-        'attn' if flags.use_attention else 'no_attn') + ('_no_vflag' if flags.no_smiles_validity_flag else '')
+    reward_label = 'baseline_reward' if flags.baseline_reward else 'true_reward'
+    sim_label = flags.exp_name + '_' + flags.bias_mode + '_IReLeaSE-PPO_' + (
+        reward_label if flags.use_true_reward else 'with_irl') + ('_no_vflag' if flags.no_smiles_validity_flag else '')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -525,17 +531,17 @@ def main(flags):
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                name=f'{flags.exp_name}_{flags.bias_mode}_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_agent_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                name=f'{flags.exp_name}_{flags.bias_mode}_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_critic_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][2],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
+                                name=f'{flags.exp_name}_{flags.bias_mode}_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
                                      f'_ppo_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
@@ -558,6 +564,7 @@ def default_hparams_min(args):
             'entropy_beta': 0.05,
             'bias_mode': args.bias_mode,
             'use_true_reward': args.use_true_reward,
+            'baseline_reward': args.baseline_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 512,
                               'unit_type': 'gru',
@@ -603,6 +610,7 @@ def default_hparams_max(args):
             'entropy_beta': 0.01,
             'bias_mode': args.bias_mode,
             'use_true_reward': args.use_true_reward,
+            'baseline_reward': args.baseline_reward,
             'reward_params': {'num_layers': 2,
                               'd_model': 512,
                               'unit_type': 'gru',
@@ -649,6 +657,7 @@ def get_hparam_config(args):
             'entropy_beta': ConstantParam(0.05),
             'bias_mode': ConstantParam(args.bias_mode),
             'use_true_reward': ConstantParam(args.use_true_reward),
+            'baseline_reward': ConstantParam(args.baseline_reward),
             'reward_params': DictParam({'num_layers': ConstantParam(2),
                                         'd_model': DiscreteParam(min=128, max=500),
                                         'unit_type': ConstantParam('gru'),
@@ -714,6 +723,8 @@ if __name__ == '__main__':
                         action='store_true',
                         help='If true then no reward function would be learned but the true reward would be used.'
                              'This requires that the explicit reward function is given.')
+    parser.add_argument('--baseline_reward', action='store_true',
+                        help='If true reward is enabled, this indicates whether the baseline reward option is used.')
     parser.add_argument('--no_smiles_validity_flag', action='store_true',
                         help='If True, smiles validity flag would not be passed to the reward net')
 
