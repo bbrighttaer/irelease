@@ -20,7 +20,7 @@ import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
 from ptan.experience import ExperienceSourceFirstLast
 from soek import Trainer, DataNode, RandomSearch, BayesianOptSearch, ConstantParam, RealParam, DiscreteParam, DictParam, \
-    CategoricalParam, LogRealParam
+    LogRealParam
 from soek.bopt import GPMinArgs
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -338,7 +338,7 @@ class IReLeaSE(Trainer):
                         if stop_condition:
                             print(f'threshold reached, best score={mean_preds_exp_avg.value}, '
                                   f'threshold={demo_score}, training completed')
-                            break
+                            # break
                         if done_episodes == n_episodes:
                             print('Training completed!')
                             break
@@ -424,7 +424,7 @@ def main(flags):
                                 'agent_net_name': flags.pretrained_model,
                                 'learn_irl': not flags.use_true_reward,
                                 'seed': seed,
-                                'n_episodes': 300,
+                                'n_episodes': 600,
                                 'is_hsearch': True,
                                 'tb_writer': summary_writer_creator}
             hparams_conf = get_hparam_config(flags)
@@ -460,7 +460,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=600,
+                                     n_episodes=15000,
                                      learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
@@ -492,7 +492,6 @@ def default_hparams(args):
             'xent_lambda': 0.0,
             'bias_mode': args.bias_mode,
             'use_true_reward': args.use_true_reward,
-            'expert_svr_dir': args.expert_dir,
             'reward_params': {'num_layers': 2,
                               'd_model': 256,
                               'unit_type': 'lstm',
@@ -528,19 +527,18 @@ def get_hparam_config(args):
             'lr_decay_step_size': DiscreteParam(min=100, max=1000),
             'xent_lambda': ConstantParam(0.0),
             'use_true_reward': ConstantParam(args.use_true_reward),
-            'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
-                                        'd_model': DiscreteParam(min=128, max=1024),
+            'bias_mode': ConstantParam(args.bias_mode),
+            'reward_params': DictParam({'num_layers': ConstantParam(2),
+                                        'd_model': ConstantParam(256),
                                         'unit_type': ConstantParam('lstm'),
-                                        'demo_batch_size': CategoricalParam([64, 128, 256]),
-                                        'irl_alg_num_iter': DiscreteParam(2, max=10),
-                                        'use_attention': ConstantParam(False),
-                                        'bidirectional': ConstantParam(True),
+                                        'demo_batch_size': ConstantParam(32),
+                                        'irl_alg_num_iter': ConstantParam(5),
+                                        'use_attention': ConstantParam(args.use_attention),
                                         'use_validity_flag': ConstantParam(not args.no_smiles_validity_flag),
-                                        'dropout': RealParam(),
-                                        'optimizer': CategoricalParam(
-                                            choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
-                                        'optimizer__global__weight_decay': LogRealParam(),
-                                        'optimizer__global__lr': LogRealParam()}),
+                                        'bidirectional': ConstantParam(True),
+                                        'optimizer': ConstantParam('adadelta'),
+                                        'optimizer__global__weight_decay': ConstantParam(0.0000),
+                                        'optimizer__global__lr': ConstantParam(0.001), }),
             'agent_params': DictParam({'unit_type': ConstantParam('gru'),
                                        'num_layers': ConstantParam(2),
                                        'stack_width': ConstantParam(1500),
@@ -576,8 +574,6 @@ if __name__ == '__main__':
                         type=str,
                         default="bayopt_search",
                         help="Hyperparameter search algorithm to use. One of [bayopt_search, random_search]")
-    parser.add_argument('--expert_dir', type=str, default='./model_dir/expert_svr',
-                        help='The directory containing SVR model(s) to predict JAK2 pIC50')
     parser.add_argument('--use_attention',
                         action='store_true',
                         help='Whether to use additive attention')
