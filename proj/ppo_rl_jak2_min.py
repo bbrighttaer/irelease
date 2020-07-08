@@ -43,7 +43,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [0]
 
 if torch.cuda.is_available():
-    dvc_id = 3
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -246,7 +246,6 @@ class IReLeaSE(Trainer):
         unbiased_data_gen = init_args['unbiased_data_gen']
         best_model_wts = None
         exp_avg = ExpAverage(beta=0.6)
-        mean_preds_exp_avg = ExpAverage(beta=0.6)
         best_score = -1.
 
         # load pretrained model
@@ -324,7 +323,6 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         mean_preds = np.nanmean(predictions)
-                        mean_preds_exp_avg.update(mean_preds)
                         if math.isnan(mean_preds) or math.isinf(mean_preds):
                             print(f'mean preds is {mean_preds}, terminating')
                             # best_score = -1.
@@ -375,8 +373,8 @@ class IReLeaSE(Trainer):
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-                        if mean_preds_exp_avg.value <= demo_score:
-                            print(f'threshold reached, best score={mean_preds_exp_avg.value}, '
+                        if best_score >= np.exp(0.):
+                            print(f'threshold reached, best score={mean_preds}, '
                                   f'threshold={demo_score}, training completed')
                             break
                         if done_episodes == n_episodes:
@@ -514,7 +512,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, flags.reward_model,
                                      sim_data_node=data_node,
-                                     n_episodes=200,
+                                     n_episodes=300,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
@@ -564,7 +562,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 2,
+                             'num_layers': 1,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',
