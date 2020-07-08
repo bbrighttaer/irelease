@@ -235,7 +235,6 @@ class IReLeaSE(Trainer):
         best_model_wts = None
         best_score = 0.
         exp_avg = ExpAverage(beta=0.6)
-        mean_preds_exp_avg = ExpAverage(beta=0.6)
 
         # load pretrained model
         if agent_net_path and agent_net_name:
@@ -299,7 +298,6 @@ class IReLeaSE(Trainer):
                                                       num_samples=n_to_generate)
                         predictions = expert_model(samples)[1]
                         mean_preds = np.mean(predictions)
-                        mean_preds_exp_avg.update(float(mean_preds))
                         try:
                             percentage_in_threshold = np.sum((predictions >= 7.0)) / len(predictions)
                         except:
@@ -326,19 +324,17 @@ class IReLeaSE(Trainer):
                         tracker.track('Average SMILES length', np.nanmean([len(s) for s in samples]), step_idx)
                         if bias_mode == 'max':
                             diff = mean_preds - demo_score
-                            stop_condition = mean_preds_exp_avg.value >= demo_score
                         else:
                             diff = demo_score - mean_preds
-                            stop_condition = mean_preds_exp_avg.value <= demo_score
                         exp_avg.update(np.exp(diff))
                         if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
                             best_score = exp_avg.value
-                        if stop_condition:
-                            print(f'threshold reached, best score={mean_preds_exp_avg.value}, '
+                        if best_score >= np.exp(0.):
+                            print(f'threshold reached, best score={mean_preds}, '
                                   f'threshold={demo_score}, training completed')
-                            # break
+                            break
                         if done_episodes == n_episodes:
                             print('Training completed!')
                             break
@@ -460,7 +456,7 @@ def main(flags):
                                             data_gens['prior_data'])
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
-                                     n_episodes=15000,
+                                     n_episodes=600,
                                      learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
@@ -504,7 +500,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0000,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
+                             'num_layers': 2,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',

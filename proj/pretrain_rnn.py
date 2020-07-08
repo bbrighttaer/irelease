@@ -36,7 +36,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -360,7 +360,7 @@ def main(flags):
                                                                       gen_data=trainer.data_provider(k, flags)['train'])
             if flags.eval:
                 model.load_state_dict(trainer.load_model(flags.model_dir, flags.eval_model_name))
-                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=1000)
+                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=10000)
             else:
                 results = trainer.train(model=model,
                                         optimizer=optimizer,
