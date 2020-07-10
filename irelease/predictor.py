@@ -239,46 +239,46 @@ def get_logp_baseline_reward(smiles, predictor, invalid_reward=0.0):
     mol, pred, nan_smiles = predictor.predict([smiles])
     if len(nan_smiles) == 1:
         return invalid_reward
-    return pred[0]
+    return float(pred[0])
 
 
 def get_drd2_activity_reward(smiles, predictor, invalid_reward=0.0):
     mol, pred, nan_smiles = predictor.predict([smiles])
     if len(nan_smiles) == 1:
         return invalid_reward
-    return -1 + 2 * pred[0]
+    return float(-1 + 2 * pred[0])
 
 
 def get_drd2_activity_baseline_reward(smiles, predictor, invalid_reward=0.0):
     mol, pred, nan_smiles = predictor.predict([smiles])
     if len(nan_smiles) == 1:
         return invalid_reward
-    return pred[0]
+    return float(pred[0])
 
 
 def get_jak2_max_reward(smiles, predictor, invalid_reward=0.0):
     mol, pred, nan_smiles = predictor.predict([smiles], get_features=get_fp)
     if len(nan_smiles) == 1:
         return invalid_reward
-    return np.exp(pred[0] / 3)
+    return float(np.exp(pred[0] / 3))
 
 
 def get_jak2_max_baseline_reward(smiles, predictor, invalid_reward=0.0):
     mol, pred, nan_smiles = predictor.predict([smiles], get_features=get_fp)
     if len(nan_smiles) == 1:
         return invalid_reward
-    return pred[0]
+    return float(pred[0])
 
 
 def get_jak2_min_reward(smiles, predictor, invalid_reward=0.0):
     mol, prop, nan_smiles = predictor.predict([smiles], get_features=get_fp)
     if len(nan_smiles) == 1:
         return invalid_reward
-    return np.exp(-prop[0] / 3 + 3)
+    return float(np.exp(-prop[0] / 3 + 3))
 
 
 def get_jak2_min_baseline_reward(smiles, predictor, invalid_reward=0.0):
     mol, prop, nan_smiles = predictor.predict([smiles], get_features=get_fp)
     if len(nan_smiles) == 1:
         return invalid_reward
-    return -prop[0]
+    return float(-prop[0])

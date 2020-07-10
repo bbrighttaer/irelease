@@ -7,7 +7,6 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import argparse
-import copy
 import math
 import os
 import random
@@ -65,7 +64,7 @@ class IreleasePretrain(Trainer):
                                        stack_width=hparams['stack_width'],
                                        stack_depth=hparams['stack_depth'],
                                        k_mask_func=encoder.k_padding_mask))
-            if i + 1 < hparams['num_layers']:
+            if hparams['num_layers'] > 1:
                 rnn_layers.append(StackedRNNDropout(hparams['dropout']))
                 rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
 
@@ -312,9 +311,9 @@ def main(flags):
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-        print('---------------------------------------------------')
-        print('Running on dataset: %s' % flags.data_file)
-        print('---------------------------------------------------')
+        print('-------------------------------------------------------------------------------------------------')
+        print(f'Running on dataset: {flags.data_file}, experiment = {flags.exp_name}')
+        print('-------------------------------------------------------------------------------------------------')
 
         trainer = IreleasePretrain()
         k = 1
@@ -359,7 +358,8 @@ def main(flags):
             model, optimizer, gen_data, rnn_args = trainer.initialize(hyper_params,
                                                                       gen_data=trainer.data_provider(k, flags)['train'])
             if flags.eval:
-                model.load_state_dict(trainer.load_model(flags.model_dir, flags.eval_model_name))
+                load_model = trainer.load_model(flags.model_dir, flags.eval_model_name)
+                model.load_state_dict(load_model)
                 trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=10000)
             else:
                 results = trainer.train(model=model,
@@ -380,7 +380,7 @@ def main(flags):
 def default_hparams(args):
     return {
         'unit_type': 'gru',
-        'num_layers': 1,
+        'num_layers': 2,
         'dropout': 0.0,
         'd_model': 1500,
         'stack_width': 1500,

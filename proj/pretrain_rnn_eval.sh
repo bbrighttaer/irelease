@@ -1,0 +1,1 @@
+python pretrain_rnn.py --data ../data/chembl.smi --eval --eval_model_name DRD2_activity_irelease_stack-rnn_gru_ppo_agent2020_07_09__23_58_24_0.778_96.mod --exp_name DRD2_activity_smiles_biased_ppo_grl

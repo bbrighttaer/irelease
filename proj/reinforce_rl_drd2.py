@@ -390,8 +390,8 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + '_IReLeaSE-REINFORCE_' + ('no_irl' if flags.use_true_reward else 'with_irl') + (
-        '_no_vflag' if flags.no_smiles_validity_flag else '')
+    irl_lbl = 'no_irl' if flags.use_true_reward else 'with_irl'
+    sim_label = flags.exp_name + '_IReLeaSE-REINFORCE_' + irl_lbl + ('_no_vflag' if flags.no_smiles_validity_flag else '')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -469,11 +469,11 @@ def main(flags):
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
+                                name=f'{flags.exp_name}_{irl_lbl}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
                                      f'_reinforce_agent_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
+                                name=f'{flags.exp_name}_{irl_lbl}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
                                      f'_reinforce_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
