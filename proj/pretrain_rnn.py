@@ -261,7 +261,7 @@ class IreleasePretrain(Trainer):
             if len(sm) > 0:
                 valid_smiles.append(sm)
             else:
-                invalid_smiles.append(sm)
+                invalid_smiles.append(samples[idx])
         v = len(valid_smiles)
         valid_smiles = list(set(valid_smiles))
         print(f'Percentage of valid SMILES = {float(len(valid_smiles)) / float(len(samples)):.2f}, '

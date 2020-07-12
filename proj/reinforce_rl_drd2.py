@@ -43,7 +43,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [71]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 1
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)

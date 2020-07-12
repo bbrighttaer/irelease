@@ -42,7 +42,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -385,8 +385,8 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    sim_label = flags.exp_name + '_' + flags.bias_mode + '_IReLeaSE-REINFORCE_' + (
-        'no_irl' if flags.use_true_reward else 'with_irl') + ('_no_vflag' if flags.no_smiles_validity_flag else '')
+    irl_lbl = 'no_irl' if flags.use_true_reward else 'with_irl'
+    sim_label = flags.exp_name + '_IReLeaSE-REINFORCE_' + irl_lbl + ('_no_vflag' if flags.no_smiles_validity_flag else '')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -461,13 +461,11 @@ def main(flags):
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
-                                     f'{hyper_params["agent_params"]["unit_type"]}'
+                                name=f'{flags.exp_name}_{irl_lbl}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
                                      f'_reinforce_agent_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
-                                name=f'{flags.exp_name + flags.bias_mode}_irelease_stack-rnn_'
-                                     f'{hyper_params["agent_params"]["unit_type"]}'
+                                name=f'{flags.exp_name}_{irl_lbl}_irelease_stack-rnn_{hyper_params["agent_params"]["unit_type"]}'
                                      f'_reinforce_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
@@ -478,7 +476,7 @@ def default_hparams(args):
     return {'d_model': 1500,
             'dropout': 0.0,
             'monte_carlo_N': 5,
-            'use_monte_carlo_sim': False,
+            'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
             'episodes_to_train': 10,

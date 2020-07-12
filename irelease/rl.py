@@ -537,7 +537,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         for i in trange(self.k, desc='IRL optimization...'):
             # D_demo processing
             demo_states, demo_actions = self.demo_gen_data.random_training_set()
-            d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1)
+            d_demo = torch.cat([demo_states, demo_actions[:, -1].reshape(-1, 1)], dim=1).to(self.device)
             valid_vec_demo = torch.ones(d_demo.shape[0]).view(-1, 1).float().to(self.device)
             d_demo_out = self.model([d_demo, valid_vec_demo])
 
