@@ -52,6 +52,7 @@ class RNNPredictor(Predictor):
                 model = torch.nn.Sequential(model, torch.nn.Sigmoid()).to(device)
             model.load_state_dict(torch.load(os.path.join(expert_model_dir, model_file),
                                              map_location=torch.device(device)))
+            model = model.eval()
             self.models.append(model)
 
     @torch.no_grad()
