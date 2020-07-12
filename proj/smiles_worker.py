@@ -13,7 +13,9 @@ import pandas as pd
 import numpy as np
 from tqdm import trange
 
+from irelease.data import GeneratorData
 from irelease.predictor import RNNPredictor, XGBPredictor
+from irelease.utils import get_default_tokens
 
 if torch.cuda.is_available():
     dvc_id = 3
@@ -64,21 +66,57 @@ def get_jak2_evaluator():
     return XGBPredictor('./model_dir/expert_xgb_reg')
 
 
+def batch_eval(out_dict, smiles, evaluator, batch_size=500):
+    for j in range(0, len(smiles), batch_size):
+        _smiles = smiles[j:j + batch_size]
+        preds = evaluator(_smiles)[1]
+        out_dict['SMILES'].extend(_smiles)
+        out_dict['prediction'].extend(np.array(preds).ravel().tolist())
+
+
 if __name__ == '__main__':
-    batch_size = 500
     eval_files = [f for f in os.listdir('./analysis') if 'eval' in f]
     eval_func = {'drd2': get_drd2_evaluator,
                  'logp': get_logp_evaluator,
                  'jak2': get_jak2_evaluator}
+    unbiased_smiles_file = '../data/unbiased_smiles.smi'
+    biased_smiles_file_dict = {'drd2': '../data/',
+                               'logp': '../data/',
+                               'jak2_min': '',
+                               'jak2_max': ''}
     for i in trange(len(eval_files), desc='Processing SMILES...'):
         file = eval_files[i]
         valid_smiles, invalid_smiles = smiles_from_json_data('./analysis/' + file)
         eval_dict = {'SMILES': [], 'prediction': []}
-        evaluator = eval_func[file.split('_')[0].lower()]()
-        for j in range(0, len(valid_smiles), batch_size):
-            smiles = valid_smiles[j:j + batch_size]
-            preds = evaluator(smiles)[1]
-            eval_dict['SMILES'].extend(smiles)
-            eval_dict['prediction'].extend(np.array(preds).ravel().tolist())
-        df = pd.DataFrame(eval_dict)
-        df.to_csv('./analysis/' + file.replace('json', 'csv'), index=False)
+        lbl = file.split('_')[0].lower()
+        evaluator = eval_func[lbl]()
+        batch_eval(eval_dict, valid_smiles, evaluator)
+        pd.DataFrame(eval_dict).to_csv('./analysis/' + file.replace('json', 'csv'), index=False)
+
+        # Unbiased SMILES
+        unbiased_data_gen = GeneratorData(training_data_path=unbiased_smiles_file,
+                                          delimiter='\t',
+                                          cols_to_read=[0],
+                                          keep_header=True,
+                                          pad_symbol=' ',
+                                          max_len=120,
+                                          tokens=get_default_tokens(),
+                                          use_cuda=use_cuda)
+        unbiased_smiles = unbiased_data_gen.random_training_set_smiles(10000)
+        unb_eval_dict = {'SMILES': [], 'prediction': []}
+        batch_eval(unb_eval_dict, unbiased_smiles, evaluator)
+        pd.DataFrame(unb_eval_dict).to_csv(f'./analysis/{lbl}_unbiased.csv', index=False)
+
+        # Biased SMILES
+        biased_data_gen = GeneratorData(training_data_path=biased_smiles_file_dict[lbl],
+                                        delimiter='\t',
+                                        cols_to_read=[0],
+                                        keep_header=True,
+                                        pad_symbol=' ',
+                                        max_len=120,
+                                        tokens=get_default_tokens(),
+                                        use_cuda=use_cuda)
+        biased_smiles = biased_data_gen.random_training_set_smiles(10000)
+        b_eval_dict = {'SMILES': [], 'prediction': []}
+        batch_eval(b_eval_dict, biased_smiles, evaluator)
+        pd.DataFrame(b_eval_dict).to_csv(f'./analysis/{lbl}_biased.csv', index=False)
