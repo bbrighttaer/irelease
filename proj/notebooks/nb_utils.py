@@ -6,6 +6,8 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import os
+import json
 import torch
 import torch.nn as nn
 import numpy as np
@@ -99,7 +101,7 @@ def initialize(hparams, demo_data_gen, unbiased_data_gen, has_critic):
     reward_net = nn.Sequential(encoder,
                                reward_net_rnn)
     reward_net = reward_net.to(device)
-    expert_model = RNNPredictor(hparams['expert_model_params'], device)
+    # expert_model = RNNPredictor(hparams['expert_model_params'], device)
     demo_data_gen.set_batch_size(hparams['reward_params']['demo_batch_size'])
 
     init_args = {'agent_net': agent_net,
@@ -108,7 +110,7 @@ def initialize(hparams, demo_data_gen, unbiased_data_gen, has_critic):
                  'reward_net_rnn': reward_net_rnn,
                  'encoder': encoder.eval(),
                  'gamma': hparams['gamma'],
-                 'expert_model': expert_model,
+                 # 'expert_model': expert_model,
                  'demo_data_gen': demo_data_gen,
                  'unbiased_data_gen': unbiased_data_gen,
                  'init_hidden_states_args': init_state_args,
@@ -267,3 +269,28 @@ def smoothing_values(values, beta=0.9):
         exp_avg.update(v)
         smooth_v.append(exp_avg.value)
     return smooth_v
+
+
+def get_convergence_data(file):
+    with open(file, 'r') as f:
+        train_hist = json.load(f)
+    lbl = file.split('/')[-1].split('.')[0]
+    baseline_mean_vals = train_hist[lbl][0][list(train_hist[lbl][0].keys())[0]][0]['baseline_mean_vals']
+    demo_mean_vals = train_hist[lbl][0][list(train_hist[lbl][0].keys())[0]][1]['biased_mean_vals']
+    biased_mean_vals = train_hist[lbl][0][list(train_hist[lbl][0].keys())[0]][2]['gen_mean_vals']
+    return {'baseline': baseline_mean_vals, 'demo': demo_mean_vals, 'biased': biased_mean_vals}
+
+
+def smiles_from_json_data(file):
+    valid_smiles = []
+    invalid_smiles = []
+    if os.path.exists(file):
+        with open(file, 'r') as f:
+            data = json.load(f)
+        for k in data:
+            if data[k]:
+                for seed_data in data[k]:
+                    for gen in seed_data:
+                        valid_smiles.extend(seed_data[gen][0]['valid_smiles'])
+                        invalid_smiles.extend(seed_data[gen][0]['invalid_smiles'])
+    return valid_smiles, invalid_smiles

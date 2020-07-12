@@ -256,9 +256,12 @@ class IreleasePretrain(Trainer):
                                            num_samples=res, is_train=False, verbose=True))
         smiles, valid_vec = canonical_smiles(samples)
         valid_smiles = []
+        invalid_smiles = []
         for idx, sm in enumerate(smiles):
             if len(sm) > 0:
                 valid_smiles.append(sm)
+            else:
+                invalid_smiles.append(sm)
         v = len(valid_smiles)
         valid_smiles = list(set(valid_smiles))
         print(f'Percentage of valid SMILES = {float(len(valid_smiles)) / float(len(samples)):.2f}, '
@@ -266,11 +269,12 @@ class IreleasePretrain(Trainer):
               f'Num. requested = {num_smiles}, Num. dups = {v - len(valid_smiles)}')
 
         # sub-nodes of sim data resource
-        smiles_node = DataNode(label="smiles", data=valid_smiles)
+        smiles_node = DataNode(label="valid_smiles", data=valid_smiles)
+        invalid_smiles_node = DataNode(label='invalid_smiles', data=invalid_smiles)
 
         # add sim data nodes to parent node
         if sim_data_node:
-            sim_data_node.data = [smiles_node]
+            sim_data_node.data = [smiles_node, invalid_smiles_node]
 
         duration = time.time() - start
         print('\nModel evaluation duration: {:.0f}m {:.0f}s'.format(duration // 60, duration % 60))

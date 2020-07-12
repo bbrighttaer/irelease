@@ -301,7 +301,7 @@ def default_params(flag):
     return {'batch': 128,
             'd_model': 128,
             'rnn_num_layers': 2,
-            'dropout': 0.0,
+            'dropout': 0.8,
             'is_bidirectional': True,
             'unit_type': 'lstm',
             'optimizer': 'adam',
