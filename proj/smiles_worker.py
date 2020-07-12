@@ -6,11 +6,12 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import os
 import json
-import torch
-import pandas as pd
+import os
+
 import numpy as np
+import pandas as pd
+import torch
 from tqdm import trange
 
 from irelease.data import GeneratorData
@@ -80,10 +81,10 @@ if __name__ == '__main__':
                  'logp': get_logp_evaluator,
                  'jak2': get_jak2_evaluator}
     unbiased_smiles_file = '../data/unbiased_smiles.smi'
-    biased_smiles_file_dict = {'drd2': '../data/',
-                               'logp': '../data/',
-                               'jak2_min': '',
-                               'jak2_max': ''}
+    biased_smiles_file_dict = {'drd2': '../data/drd2_active_filtered.smi',
+                               'logp': '../data/logp_smiles_biased.smi',
+                               'jak2_min': '../data/jak2_min_smiles_biased.smi',
+                               'jak2_max': '../data/jak2_smiles_biased_max.smi'}
     for i in trange(len(eval_files), desc='Processing SMILES...'):
         file = eval_files[i]
         valid_smiles, invalid_smiles = smiles_from_json_data('./analysis/' + file)
@@ -108,6 +109,8 @@ if __name__ == '__main__':
         pd.DataFrame(unb_eval_dict).to_csv(f'./analysis/{lbl}_unbiased.csv', index=False)
 
         # Biased SMILES
+        if lbl == 'jak2':
+            lbl += '_' + file.split('_')[1]
         biased_data_gen = GeneratorData(training_data_path=biased_smiles_file_dict[lbl],
                                         delimiter='\t',
                                         cols_to_read=[0],
