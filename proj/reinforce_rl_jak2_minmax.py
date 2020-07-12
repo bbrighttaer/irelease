@@ -42,7 +42,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 3
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -326,7 +326,9 @@ class IReLeaSE(Trainer):
                             diff = mean_preds - demo_score
                         else:
                             diff = demo_score - mean_preds
-                        exp_avg.update(np.exp(diff))
+                        score = np.exp(diff)
+                        exp_avg.update(score)
+                        tracker.track('score', score, step_idx)
                         if exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.model.state_dict()),
                                               copy.deepcopy(irl_algorithm.model.state_dict())]
@@ -386,7 +388,7 @@ class IReLeaSE(Trainer):
 
 def main(flags):
     irl_lbl = 'no_irl' if flags.use_true_reward else 'with_irl'
-    sim_label = flags.exp_name + '_IReLeaSE-REINFORCE_' + irl_lbl + ('_no_vflag' if flags.no_smiles_validity_flag else '')
+    sim_label = flags.exp_name + '_min_IReLeaSE-REINFORCE_' + irl_lbl + ('_no_vflag' if flags.no_smiles_validity_flag else '')
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list
@@ -457,6 +459,7 @@ def main(flags):
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, seed,
                                      sim_data_node=data_node,
                                      n_episodes=600,
+                                     bias_mode=flags.bias_mode,
                                      learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
@@ -476,7 +479,7 @@ def default_hparams(args):
     return {'d_model': 1500,
             'dropout': 0.0,
             'monte_carlo_N': 5,
-            'use_monte_carlo_sim': True,
+            'use_monte_carlo_sim': False,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
             'episodes_to_train': 10,

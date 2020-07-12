@@ -43,7 +43,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [0]
 
 if torch.cuda.is_available():
-    dvc_id = 0
+    dvc_id = 1
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -432,7 +432,10 @@ class IReLeaSE(Trainer):
 
 
 def main(flags):
-    reward_label = 'baseline_reward' if flags.baseline_reward else 'true_reward'
+    if flags.use_true_reward:
+        reward_label = '_baseline_reward' if flags.baseline_reward else '_true_reward'
+    else:
+        reward_label = ''
     sim_label = flags.exp_name + '_min_IReLeaSE-PPO_' + (
         reward_label if flags.use_true_reward else 'with_irl') + ('_no_vflag' if flags.no_smiles_validity_flag else '')
     sim_data = DataNode(label=sim_label)
@@ -514,22 +517,23 @@ def main(flags):
             results = irelease.train(init_args, flags.model_dir, flags.pretrained_model, flags.reward_model,
                                      sim_data_node=data_node,
                                      n_episodes=300,
+                                     learn_irl=not flags.use_true_reward,
                                      tb_writer=summary_writer_creator)
             irelease.save_model(results['model'][0],
                                 path=flags.model_dir,
                                 name=f'{flags.exp_name}_min_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_ppo_agent_{date_label}_{results["score"]}_{results["epoch"]}')
+                                     f'_ppo_agent{reward_label}_{date_label}_{results["score"]}_{results["epoch"]}')
             irelease.save_model(results['model'][1],
                                 path=flags.model_dir,
                                 name=f'{flags.exp_name}_min_irelease_stack-rnn_'
                                      f'{hyper_params["agent_params"]["unit_type"]}'
-                                     f'_ppo_critic_{date_label}_{results["score"]}_{results["epoch"]}')
+                                     f'_ppo_critic{reward_label}_{date_label}_{results["score"]}_{results["epoch"]}')
             # irelease.save_model(results['model'][2],
             #                     path=flags.model_dir,
             #                     name=f'{flags.exp_name}_min_irelease_stack-rnn_'
             #                          f'{hyper_params["agent_params"]["unit_type"]}'
-            #                          f'_ppo_reward_net_{date_label}_{results["score"]}_{results["epoch"]}')
+            #                          f'_ppo_reward_net{reward_label}_{date_label}_{results["score"]}_{results["epoch"]}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
@@ -564,7 +568,7 @@ def default_hparams(args):
                               'optimizer__global__weight_decay': 0.0005,
                               'optimizer__global__lr': 0.001, },
             'agent_params': {'unit_type': 'gru',
-                             'num_layers': 1,
+                             'num_layers': 2,
                              'stack_width': 1500,
                              'stack_depth': 200,
                              'optimizer': 'adadelta',

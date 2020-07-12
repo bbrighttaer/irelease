@@ -292,5 +292,5 @@ def smiles_from_json_data(file):
                 for seed_data in data[k]:
                     for gen in seed_data:
                         valid_smiles.extend(seed_data[gen][0]['valid_smiles'])
-                        invalid_smiles.extend(seed_data[gen][0]['invalid_smiles'])
+                        invalid_smiles.extend(seed_data[gen][1]['invalid_smiles'])
     return valid_smiles, invalid_smiles
