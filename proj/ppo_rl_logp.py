@@ -312,8 +312,8 @@ class IReLeaSE(Trainer):
                         predictions = expert_model(samples)[1]
                         mean_preds = np.mean(predictions)
                         try:
-                            percentage_in_threshold = np.sum((predictions >= 0.0) &
-                                                             (predictions <= 5.0)) / len(predictions)
+                            percentage_in_threshold = np.sum((predictions >= 1.0) &
+                                                             (predictions < 5.0)) / len(predictions)
                         except:
                             percentage_in_threshold = 0.
                         per_valid = len(predictions) / n_to_generate
