@@ -76,7 +76,7 @@ def batch_eval(out_dict, smiles, evaluator, batch_size=500):
 
 
 if __name__ == '__main__':
-    eval_files = [f for f in os.listdir('./analysis') if 'eval' in f]
+    eval_files = [f for f in os.listdir('./analysis') if 'eval.json' in f]
     eval_func = {'drd2': get_drd2_evaluator,
                  'logp': get_logp_evaluator,
                  'jak2': get_jak2_evaluator}
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     biased_smiles_file_dict = {'drd2': '../data/drd2_active_filtered.smi',
                                'logp': '../data/logp_smiles_biased.smi',
                                'jak2_min': '../data/jak2_min_smiles_biased.smi',
-                               'jak2_max': '../data/jak2_smiles_biased_max.smi'}
+                               'jak2_max': '../data/jak2_max_smiles_biased.smi'}
     for i in trange(len(eval_files), desc='Processing SMILES...'):
         file = eval_files[i]
         valid_smiles, invalid_smiles = smiles_from_json_data('./analysis/' + file)
