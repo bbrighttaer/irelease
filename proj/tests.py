@@ -5,14 +5,16 @@ import torch
 from ptan.experience import ExperienceSourceFirstLast
 from tqdm import tqdm
 
-from irelease.data import GeneratorData
+from irelease.data import GeneratorData, BinaryClassificationData
 from irelease.env import MoleculeEnv
-from irelease.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear, RewardNetRNN
+from irelease.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear, \
+    RewardNetRNN
 from irelease.reward import RewardFunction
 from irelease.rl import PolicyAgent, MolEnvProbabilityActionSelector, REINFORCE, GuidedRewardLearningIRL, \
     StateActionProbRegistry
 from irelease.stackrnn import StackRNNCell
-from irelease.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d, init_cell, seq2tensor
+from irelease.utils import init_hidden, init_stack, get_default_tokens, init_hidden_2d, init_stack_2d, init_cell, \
+    seq2tensor
 
 gen_data_path = '../data/chembl_xsmall.smi'
 tokens = get_default_tokens()
@@ -258,6 +260,15 @@ class MyTestCase(unittest.TestCase):
             print(f'state = {exp.state}, action = {exp.action}, reward = {exp.reward}, next_state = {exp.last_state}')
             if step_idx == 5:
                 break
+
+    def test_bc_data(self):
+        bc_data = BinaryClassificationData(1000)
+        pos = gen_data.random_training_set_smiles(10)
+        negs = ['<' + s + '>' for s in gen_data.random_training_set_smiles(20)]
+        bc_data.populate_neg(negs)
+        bc_data.populate_pos(pos)
+        res = bc_data.sample(15)
+        assert len(res) == 15
 
 
 def get_initial_states(batch_size, hidden_size, num_layers, stack_depth, stack_width, unit_type):

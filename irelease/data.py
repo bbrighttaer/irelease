@@ -1,9 +1,11 @@
-# Original code from: https://github.com/isayev/ReLeaSE
+# Original GeneratorData code from: https://github.com/isayev/ReLeaSE
 
 import numpy as np
 import torch
+from irelease.smiles_enumerator import SmilesEnumerator
 
-from irelease.utils import read_smi_file, tokenize, read_object_property_file, seq2tensor, pad_sequences
+from irelease.utils import read_smi_file, tokenize, read_object_property_file, seq2tensor, pad_sequences, ReplayBuffer, \
+    get_default_tokens
 
 
 class GeneratorData(object):
@@ -129,3 +131,50 @@ class GeneratorData(object):
         self.file, success = read_smi_file(path, unique=True)
         self.file_len = len(self.file)
         assert success
+
+
+class BinaryClassificationData:
+
+    def __init__(self, buffer_size, enum=True, device='cpu'):
+        self.enum = enum
+        self.device = device
+        self.smiles_enum = SmilesEnumerator()
+        self._pos_buffer = ReplayBuffer(buffer_size)
+        self._neg_buffer = ReplayBuffer(buffer_size)
+
+    def populate_pos(self, samples):
+        self._pos_buffer.populate(samples)
+
+    def populate_neg(self, samples):
+        self._neg_buffer.populate(samples)
+
+    def _data_to_tensor(self, data):
+        data, _ = pad_sequences(data)
+        data, _ = seq2tensor(data, tokens=get_default_tokens())
+        data = torch.from_numpy(data).long().to(self.device)
+        return data
+
+    def sample(self, batch):
+        assert (batch > 1), 'BC data batch size must be greater than 1'
+        pos_data = list(set(self._pos_buffer.sample(batch, False)))
+        neg_data = list(set(self._neg_buffer.sample(batch, False)))
+        aug_smiles = []
+        diff = len(neg_data) - len(pos_data)
+        if len(pos_data) < len(neg_data):
+            while len(aug_smiles) < diff:
+                for i in range(diff - len(aug_smiles)):
+                    sm = pos_data[np.random.choice(len(pos_data))]
+                    aug_smiles.append(self.smiles_enum.randomize_smiles(sm))
+                aug_smiles = [s for s in aug_smiles if s not in pos_data]
+        pos_data.extend(aug_smiles)
+        pos_data = ['<' + s + '>' for s in pos_data]
+        pos_data = np.array(pos_data, dtype=np.object)
+        neg_data = np.array(neg_data, dtype=np.object)
+        pos_data = pos_data[np.random.choice(np.arange(len(pos_data)), len(neg_data), replace=False)]
+        t_pos_data = self._data_to_tensor(pos_data)
+        t_pos_labels = torch.ones(t_pos_data.shape[0], 1)
+        t_neg_data = self._data_to_tensor(neg_data)
+        t_neg_labels = torch.zeros(t_neg_data.shape[0], 1)
+        x = torch.cat([t_pos_data, t_neg_data])
+        y = torch.cat([t_pos_labels, t_neg_labels])
+        return x, y
