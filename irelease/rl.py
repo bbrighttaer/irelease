@@ -568,7 +568,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             # SMILES validity training
             x, y_true = self.bc_data.sample(64)
             y_pred = self.model([x, None])
-            bce_loss = F.binary_cross_entropy(y_pred, y_true)
+            bce_loss = F.binary_cross_entropy(F.sigmoid(y_pred), y_true)
             bce_losses.append(bce_loss.item())
             loss = loss + 0.5 * bce_loss
 
