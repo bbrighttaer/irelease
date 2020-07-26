@@ -171,10 +171,9 @@ class BinaryClassificationData:
         pos_data = np.array(pos_data, dtype=np.object)
         neg_data = np.array(neg_data, dtype=np.object)
         pos_data = pos_data[np.random.choice(np.arange(len(pos_data)), len(neg_data), replace=False)]
-        t_pos_data = self._data_to_tensor(pos_data)
-        t_pos_labels = torch.ones(t_pos_data.shape[0], 1)
-        t_neg_data = self._data_to_tensor(neg_data)
-        t_neg_labels = torch.zeros(t_neg_data.shape[0], 1)
-        x = torch.cat([t_pos_data, t_neg_data])
+        pos_neg_data = np.concatenate([pos_data, neg_data])
+        x = self._data_to_tensor(pos_neg_data)
+        t_pos_labels = torch.ones(len(pos_data), 1)
+        t_neg_labels = torch.zeros(len(neg_data), 1)
         y = torch.cat([t_pos_labels, t_neg_labels])
         return x, y
