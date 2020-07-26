@@ -493,7 +493,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
         self.agent_net_init_args = agent_net_init_func_args
         self._models = torch.nn.ModuleList()
         self.drop_imp_wts = drop_importance_wts
-        self.bc_data = BinaryClassificationData(buffer_size)
+        self.bc_data = BinaryClassificationData(buffer_size, self.device)
 
     @property
     def data_generator(self):

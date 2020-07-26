@@ -583,7 +583,7 @@ class RewardNetRNN(nn.Module):
         if use_attention:
             self.attn_linear = nn.Linear((hidden_size * self.num_dir) + hidden_size, 1)
             lin_dim = hidden_size
-        self.reward_net = nn.Linear(lin_dim + 1 if self.v_flag else 0, 1)
+        self.reward_net = nn.Linear(lin_dim + (1 if self.v_flag else 0), 1)
 
     def forward(self, inp, return_logits=False):
         """
