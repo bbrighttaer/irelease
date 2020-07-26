@@ -570,7 +570,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             y_pred = self.model([x, None])
             bce_loss = F.binary_cross_entropy(y_pred, y_true)
             bce_losses.append(bce_loss.item())
-            loss = loss + 0.5 * bce_loss
+            loss = loss + bce_loss
 
             # update params
             self.optimizer.zero_grad()

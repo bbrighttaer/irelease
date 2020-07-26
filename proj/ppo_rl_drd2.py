@@ -360,7 +360,7 @@ class IReLeaSE(Trainer):
                     rl_loss = drl_algorithm.fit(exp_trajectories)
                     samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                               num_samples=3)
-                    print(f'IRL loss = {irl_loss}, RL loss = {rl_loss}, samples = {samples}')
+                    print(f'IRL loss = {irl_loss}, BCE loss = {bce_loss} RL loss = {rl_loss}, samples = {samples}')
                     tracker.track('irl_loss', irl_loss, step_idx)
                     tracker.track('bce_loss', bce_loss, step_idx)
                     tracker.track('critic_loss', rl_loss[0], step_idx)
