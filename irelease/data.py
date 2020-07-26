@@ -175,5 +175,5 @@ class BinaryClassificationData:
         x = self._data_to_tensor(pos_neg_data)
         t_pos_labels = torch.ones(len(pos_data), 1)
         t_neg_labels = torch.zeros(len(neg_data), 1)
-        y = torch.cat([t_pos_labels, t_neg_labels])
+        y = torch.cat([t_pos_labels, t_neg_labels]).to(self.device)
         return x, y
