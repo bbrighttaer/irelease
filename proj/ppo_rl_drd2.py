@@ -17,14 +17,6 @@ from datetime import datetime as dt
 import numpy as np
 import torch
 import torch.nn as nn
-from ptan.common.utils import TBMeanTracker
-from ptan.experience import ExperienceSourceFirstLast
-from soek import Trainer, DataNode, RandomSearch, BayesianOptSearch, ConstantParam, RealParam, DiscreteParam, \
-    CategoricalParam, DictParam, LogRealParam
-from soek.bopt import GPMinArgs
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
-
 from irelease.data import GeneratorData
 from irelease.env import MoleculeEnv
 from irelease.model import Encoder, StackRNN, StackRNNLinear, \
@@ -36,11 +28,18 @@ from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewa
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles, ExpAverage, DummyException
+from ptan.common.utils import TBMeanTracker
+from ptan.experience import ExperienceSourceFirstLast
+from soek import Trainer, DataNode, RandomSearch, BayesianOptSearch, ConstantParam, RealParam, DiscreteParam, \
+    CategoricalParam, DictParam, LogRealParam
+from soek.bopt import GPMinArgs
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [71]
+seeds = [71, 4, 7]
 
 if torch.cuda.is_available():
     dvc_id = 1
@@ -162,6 +161,7 @@ class IReLeaSE(Trainer):
         irl_alg = GuidedRewardLearningIRL(reward_net, optimizer_reward_net, demo_data_gen,
                                           k=hparams['reward_params']['irl_alg_num_iter'],
                                           agent_net=agent_net,
+                                          bce_lambda=hparams['bce_lambda'],
                                           agent_net_init_func=agent_net_hidden_states_func,
                                           agent_net_init_func_args=init_state_args,
                                           device=device)
@@ -308,6 +308,7 @@ class IReLeaSE(Trainer):
                         with torch.set_grad_enabled(False):
                             samples = generate_smiles(drl_algorithm.model, demo_data_gen, init_args['gen_args'],
                                                       num_samples=n_to_generate)
+                            pred_res = irl_algorithm.predict_validity(samples)
                         predictions = expert_model(samples)[1]
                         per_active = float(len([v for v in predictions if v >= 0.8])) / len(predictions)
                         mean_preds = np.mean(predictions)
@@ -331,10 +332,9 @@ class IReLeaSE(Trainer):
                         tracker.track('Average SMILES length', avg_len, step_idx)
                         diversity = 0 if eval_score >= 0.2 else np.log(eval_score)
                         smile_length = 0 if avg_len >= 20 else -np.exp(mean_preds)
-                        score = 2 * np.exp(mean_preds) + max(-np.exp(mean_preds), np.log(per_valid)) + max(
-                            -np.exp(mean_preds), diversity) + smile_length
+                        score = pred_res['accuracy'] * mean_preds
                         tracker.track('score', score, step_idx)
-                        score_exp_avg.update(mean_preds)
+                        score_exp_avg.update(score)
                         if score_exp_avg.value > best_score:
                             best_model_wts = [copy.deepcopy(drl_algorithm.actor.state_dict()),
                                               copy.deepcopy(drl_algorithm.critic.state_dict()),
@@ -512,11 +512,12 @@ def default_hparams(args):
             'ppo_batch': 1,
             'ppo_epochs': 6,
             'entropy_beta': 0.01,
+            'bce_lambda': 1.0,
             'use_true_reward': args.use_true_reward,
             'baseline_reward': args.baseline_reward,
             'reward_params': {'num_layers': 2, 'd_model': 172, 'unit_type': 'lstm', 'demo_batch_size': 128,
                               'irl_alg_num_iter': 3, 'use_attention': False, 'bidirectional': True,
-                              'use_validity_flag': not args.no_smiles_validity_flag,
+                              'use_validity_flag': False,
                               'dropout': 0.3963193243801649, 'optimizer': 'sgd',
                               'optimizer__global__weight_decay': 0.010945638802254014,
                               'optimizer__global__lr': 0.000256177468757563},
@@ -548,6 +549,7 @@ def get_hparam_config(args):
             'ppo_batch': ConstantParam(1),
             'ppo_epochs': DiscreteParam(2, max=10),
             'entropy_beta': LogRealParam(),
+            'bce_lambda': RealParam(),
             'use_true_reward': ConstantParam(args.use_true_reward),
             'baseline_reward': ConstantParam(args.baseline_reward),
             'reward_params': DictParam({'num_layers': DiscreteParam(min=1, max=4),
@@ -558,7 +560,7 @@ def get_hparam_config(args):
                                         'use_attention': ConstantParam(False),
                                         'bidirectional': ConstantParam(True),
                                         'dropout': RealParam(),
-                                        'use_validity_flag': ConstantParam(not args.no_smiles_validity_flag),
+                                        'use_validity_flag': ConstantParam(False),
                                         'optimizer': CategoricalParam(
                                             choices=['sgd', 'adam', 'adadelta', 'adagrad', 'adamax', 'rmsprop']),
                                         'optimizer__global__weight_decay': LogRealParam(),

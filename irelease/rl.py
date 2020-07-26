@@ -15,6 +15,7 @@ from ptan.actions import ActionSelector
 from ptan.agent import BaseAgent
 from torch.optim.lr_scheduler import StepLR
 from tqdm import trange
+from sklearn.metrics import accuracy_score
 
 from irelease.utils import seq2tensor, get_default_tokens, pad_sequences, canonical_smiles, ReplayBuffer
 from irelease.data import BinaryClassificationData
@@ -473,13 +474,14 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
 
     def __init__(self, model, optimizer, demo_gen_data, agent_net, agent_net_init_func, agent_net_init_func_args, k=10,
                  use_buffer=True, buffer_size=1000, buffer_batch_size=100, drop_importance_wts=False, seed=None,
-                 device='cpu'):
+                 bce_lambda=1., device='cpu'):
         self.model = model
         self.optimizer = optimizer
         self.lr_sch = StepLR(self.optimizer, gamma=0.95, step_size=500)
         self.demo_gen_data = demo_gen_data
         self.k = k
         self.device = device
+        self.bce_lambda = bce_lambda
         self.use_buffer = use_buffer
         if seed:
             np.random.seed(seed)
@@ -517,6 +519,26 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             z[:, idx] = probs_a
         z = 1. / torch.mean(z, dim=1)
         return z
+
+    @torch.no_grad()
+    def predict_validity(self, samples):
+        new_smiles, valid_vec_samp = canonical_smiles(samples, has_start_end_tokens=False)
+        valid_smiles = []
+        invalid_smiles = []
+        for i, v in enumerate(valid_vec_samp):
+            if v == 1:
+                valid_smiles.append(new_smiles[i])
+            else:
+                invalid_smiles.append(samples[i])
+        all_smiles = ['<' + s + '>' for s in valid_smiles + invalid_smiles]
+        y_true = torch.cat([torch.ones(len(valid_smiles), 1), torch.zeros(len(invalid_smiles), 1)]).to(self.device)
+        x = pad_sequences(all_smiles)
+        x, _ = seq2tensor(x, tokens=get_default_tokens())
+        x = torch.from_numpy(x).long().to(self.device)
+        y_pred = torch.sigmoid(self.model([x, None]))
+        loss = F.binary_cross_entropy(y_pred, y_true).item()
+        accuracy = accuracy_score(y_true.cpu().detach().numpy(), y_pred.cpu().detach().numpy())
+        return {'loss': loss, 'accuracy': accuracy}
 
     @torch.enable_grad()
     def fit(self, trajectories):
@@ -570,7 +592,7 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             y_pred = self.model([x, None])
             bce_loss = F.binary_cross_entropy(F.sigmoid(y_pred), y_true)
             bce_losses.append(bce_loss.item())
-            loss = loss + bce_loss
+            loss = loss + self.bce_lambda * bce_loss
 
             # update params
             self.optimizer.zero_grad()
@@ -578,5 +600,3 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             self.optimizer.step()
             # self.lr_sch.step()
         return np.mean(losses), np.mean(bce_losses)
-
-
