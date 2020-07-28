@@ -532,12 +532,15 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
                 invalid_smiles.append(samples[i])
         all_smiles = ['<' + s + '>' for s in valid_smiles + invalid_smiles]
         y_true = torch.cat([torch.ones(len(valid_smiles), 1), torch.zeros(len(invalid_smiles), 1)]).to(self.device)
-        x = pad_sequences(all_smiles)
+        x, _ = pad_sequences(all_smiles)
         x, _ = seq2tensor(x, tokens=get_default_tokens())
         x = torch.from_numpy(x).long().to(self.device)
         y_pred = torch.sigmoid(self.model([x, None]))
         loss = F.binary_cross_entropy(y_pred, y_true).item()
-        accuracy = accuracy_score(y_true.cpu().detach().numpy(), y_pred.cpu().detach().numpy())
+        y_true = y_true.cpu().detach().numpy()
+        y_pred = y_pred.cpu().detach().numpy()
+        y_pred = np.where(y_pred < 0.8, 0, 1)
+        accuracy = accuracy_score(y_true, y_pred)
         return {'loss': loss, 'accuracy': accuracy}
 
     @torch.enable_grad()
@@ -590,9 +593,9 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
             # SMILES validity training
             x, y_true = self.bc_data.sample(64)
             y_pred = self.model([x, None])
-            bce_loss = F.binary_cross_entropy(F.sigmoid(y_pred), y_true)
+            bce_loss = F.binary_cross_entropy(torch.sigmoid(y_pred), y_true)
             bce_losses.append(bce_loss.item())
-            loss = loss + self.bce_lambda * bce_loss
+            # loss = loss + self.bce_lambda * bce_loss
 
             # update params
             self.optimizer.zero_grad()

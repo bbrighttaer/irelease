@@ -17,6 +17,14 @@ from datetime import datetime as dt
 import numpy as np
 import torch
 import torch.nn as nn
+from ptan.common.utils import TBMeanTracker
+from ptan.experience import ExperienceSourceFirstLast
+from soek import Trainer, DataNode, RandomSearch, BayesianOptSearch, ConstantParam, RealParam, DiscreteParam, \
+    CategoricalParam, DictParam, LogRealParam
+from soek.bopt import GPMinArgs
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
+
 from irelease.data import GeneratorData
 from irelease.env import MoleculeEnv
 from irelease.model import Encoder, StackRNN, StackRNNLinear, \
@@ -28,13 +36,6 @@ from irelease.rl import MolEnvProbabilityActionSelector, PolicyAgent, GuidedRewa
     StateActionProbRegistry, Trajectory, EpisodeStep, PPO
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, seq2tensor, init_hidden, init_cell, init_stack, \
     time_since, generate_smiles, ExpAverage, DummyException
-from ptan.common.utils import TBMeanTracker
-from ptan.experience import ExperienceSourceFirstLast
-from soek import Trainer, DataNode, RandomSearch, BayesianOptSearch, ConstantParam, RealParam, DiscreteParam, \
-    CategoricalParam, DictParam, LogRealParam
-from soek.bopt import GPMinArgs
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -370,7 +371,8 @@ class IReLeaSE(Trainer):
                     batch_episodes = 0
                     trajectories.clear()
                     exp_trajectories.clear()
-        except Exception if is_hsearch else DummyException:
+        except Exception if is_hsearch else DummyException as e:
+            print(str(e))
             best_score = 0.
 
         if best_model_wts:
@@ -501,32 +503,31 @@ def main(flags):
 
 def default_hparams(args):
     return {'d_model': 1500,
-            'dropout': 0.1919560782374305,
+            'dropout': 0.7591199680164407,
             'monte_carlo_N': 5,
             'use_monte_carlo_sim': True,
             'no_mc_fill_val': 0.0,
             'gamma': 0.97,
-            'episodes_to_train': 12,
-            'gae_lambda': 0.9228059180288825,
+            'episodes_to_train': 7,
+            'gae_lambda': 0.9705788458486725,
             'ppo_eps': 0.2,
             'ppo_batch': 1,
-            'ppo_epochs': 6,
-            'entropy_beta': 0.01,
-            'bce_lambda': 1.0,
+            'ppo_epochs': 3,
+            'entropy_beta': 0.11306417572114535,
+            'bce_lambda': 0.19778885277321234,
             'use_true_reward': args.use_true_reward,
             'baseline_reward': args.baseline_reward,
-            'reward_params': {'num_layers': 2, 'd_model': 172, 'unit_type': 'lstm', 'demo_batch_size': 128,
-                              'irl_alg_num_iter': 3, 'use_attention': False, 'bidirectional': True,
-                              'use_validity_flag': False,
-                              'dropout': 0.3963193243801649, 'optimizer': 'sgd',
-                              'optimizer__global__weight_decay': 0.010945638802254014,
-                              'optimizer__global__lr': 0.000256177468757563},
+            'reward_params': {'num_layers': 2, 'd_model': 462, 'unit_type': 'lstm', 'demo_batch_size': 64,
+                              'irl_alg_num_iter': 9, 'use_attention': False, 'bidirectional': True,
+                              'dropout': 0.5144502849651041, 'use_validity_flag': False, 'optimizer': 'sgd',
+                              'optimizer__global__weight_decay': 0.00036112341639469995,
+                              'optimizer__global__lr': 0.5728470013832712},
             'agent_params': {'unit_type': 'gru', 'num_layers': 2, 'stack_width': 1500, 'stack_depth': 200,
-                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.001428470680331549,
-                             'optimizer__global__lr': 0.0008453447466167819},
+                             'optimizer': 'adadelta', 'optimizer__global__weight_decay': 0.14201772616242542,
+                             'optimizer__global__lr': 0.00020981716219508535},
             'critic_params': {'num_layers': 2, 'd_model': 256, 'unit_type': 'lstm', 'optimizer': 'adadelta',
-                              'optimizer__global__weight_decay': 0.7424576981970683,
-                              'optimizer__global__lr': 0.0012980019737052746},
+                              'optimizer__global__weight_decay': 0.002880546695720813,
+                              'optimizer__global__lr': 0.06799529225229005},
             'expert_model_params': {'model_dir': './model_dir/expert_rnn_bin',
                                     'd_model': 128,
                                     'rnn_num_layers': 2,

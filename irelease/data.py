@@ -154,23 +154,32 @@ class BinaryClassificationData:
         data = torch.from_numpy(data).long().to(self.device)
         return data
 
+    def _augment(self, samples):
+        new_samples = list(samples)
+        for s in samples:
+            new_samples.append(self.smiles_enum.randomize_smiles(s))
+        return new_samples
+
     def sample(self, batch):
         assert (batch > 1), 'BC data batch size must be greater than 1'
         pos_data = list(set(self._pos_buffer.sample(batch, False)))
+        # pos_data = self._augment(pos_data)
         neg_data = list(set(self._neg_buffer.sample(batch, False)))
-        aug_smiles = []
-        diff = len(neg_data) - len(pos_data)
-        if len(pos_data) < len(neg_data):
-            while len(aug_smiles) < diff:
-                for i in range(diff - len(aug_smiles)):
-                    sm = pos_data[np.random.choice(len(pos_data))]
-                    aug_smiles.append(self.smiles_enum.randomize_smiles(sm))
-                aug_smiles = [s for s in aug_smiles if s not in pos_data]
-        pos_data.extend(aug_smiles)
+        min_size = min(len(pos_data), len(neg_data))
+        # aug_smiles = []
+        # diff = len(neg_data) - len(pos_data)
+        # if len(pos_data) < len(neg_data):
+        #     while len(aug_smiles) < diff:
+        #         for i in range(diff - len(aug_smiles)):
+        #             sm = pos_data[np.random.choice(len(pos_data))]
+        #             aug_smiles.append(self.smiles_enum.randomize_smiles(sm))
+        #         # aug_smiles = [s for s in aug_smiles if s not in pos_data]
+        # pos_data.extend(aug_smiles)
         pos_data = ['<' + s + '>' for s in pos_data]
         pos_data = np.array(pos_data, dtype=np.object)
         neg_data = np.array(neg_data, dtype=np.object)
-        pos_data = pos_data[np.random.choice(np.arange(len(pos_data)), len(neg_data), replace=False)]
+        pos_data = pos_data[np.random.choice(np.arange(len(pos_data)), min_size, replace=False)]
+        neg_data = neg_data[np.random.choice(np.arange(len(neg_data)), min_size, replace=False)]
         pos_neg_data = np.concatenate([pos_data, neg_data])
         x = self._data_to_tensor(pos_neg_data)
         t_pos_labels = torch.ones(len(pos_data), 1)
