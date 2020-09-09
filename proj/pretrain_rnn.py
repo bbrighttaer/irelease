@@ -25,7 +25,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 
 from irelease.data import GeneratorData
-from irelease.model import Encoder, StackRNN, StackRNNLinear, StackedRNNLayerNorm, StackedRNNDropout
+from irelease.model import Encoder, StackRNN, RNNLinearOut, StackedRNNLayerNorm, StackedRNNDropout
 from irelease.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, init_hidden, init_cell, init_stack, \
     generate_smiles, time_since, get_default_tokens, canonical_smiles
 
@@ -70,12 +70,12 @@ class IreleasePretrain(Trainer):
 
         model = nn.Sequential(encoder,
                               *rnn_layers,
-                              StackRNNLinear(out_dim=gen_data.n_characters,
-                                             hidden_size=hparams['d_model'],
-                                             bidirectional=False,
-                                             # encoder=encoder,
-                                             # dropout=hparams['dropout'],
-                                             bias=True))
+                              RNNLinearOut(out_dim=gen_data.n_characters,
+                                           hidden_size=hparams['d_model'],
+                                           bidirectional=False,
+                                           # encoder=encoder,
+                                           # dropout=hparams['dropout'],
+                                           bias=True))
         if use_cuda:
             model = model.cuda()
         optimizer = parse_optimizer(hparams, model)

@@ -34,6 +34,35 @@ def clone(module, N):
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
 
+class OneHotEncoder(nn.Module):
+    def __init__(self, vocab_size, return_tuple=False, device='cpu'):
+        super(OneHotEncoder, self).__init__()
+        self.vocab_size = vocab_size
+        self.device = device
+        self.return_tuple = return_tuple
+
+    def forward(self, inp):
+        """
+        One-hot encoding of input
+        :param inp:
+        :return:
+        """
+        is_list = False
+        if isinstance(inp, (tuple, set, list)):
+            x = inp[0]
+            is_list = True
+        else:
+            x = inp
+        x = torch.nn.functional.one_hot(x, self.vocab_size).float().to(self.device)
+        x = x.permute(1, 0, 2)
+        if self.return_tuple:
+            if not is_list:
+                inp = [None]
+            inp[0] = x
+            return inp
+        return x
+
+
 class Encoder(nn.Module):
     def __init__(self, vocab_size, d_model, padding_idx, dropout=0., return_tuple=False):
         """
@@ -73,7 +102,7 @@ class Encoder(nn.Module):
             Updates x to have the shape (sequence length, batch_size, d_model)
         """
         is_list = False
-        if isinstance(inp, list):
+        if isinstance(inp, (tuple, set, list)):
             x = inp[0]
             is_list = True
         else:
@@ -387,6 +416,50 @@ def get_std_opt(model, d_model):
                               torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
 
 
+class RNNGenerator(nn.Module):
+    def __init__(self, input_size, hidden_size, unit_type='lstm', num_layers=1, bias=True, dropout=0.0):
+        super(RNNGenerator, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.unit_type = unit_type
+        self.num_layers = num_layers
+        self.has_cell = False
+        if self.unit_type == 'lstm':
+            self.rnn = nn.LSTM(input_size, self.hidden_size, num_layers,
+                               bidirectional=False,
+                               bias=bias,
+                               dropout=dropout)
+            self.has_cell = True
+        else:
+            self.rnn = nn.GRU(input_size, self.hidden_size, num_layers,
+                              bidirectional=False,
+                              bias=bias,
+                              dropout=dropout)
+
+    def forward(self, x):
+        """
+        Applies the RNN to the input x of shape (seq_len, batch_size, dim)
+        :param x: tensor
+            input data
+        :return: outputs of shape (seq_len, batch, num_directions * hidden_size)
+        """
+        batch_size = x.shape[1]
+        # initial hidden states
+        h0 = torch.zeros((self.num_layers, batch_size, self.hidden_size))
+        if self.has_cell:
+            c0 = torch.zeros((self.num_layers, batch_size, self.hidden_size))
+            h0 = (h0, c0)
+
+        # forward propagation
+        if self.has_cell:
+            output, (hn, cn) = self.rnn(x, h0)
+        else:
+            output, hn = self.rnn(h0)
+            cn = None
+        output = [output, (hn, cn)]
+        return output
+
+
 class StackRNN(nn.Module):
     def __init__(self, layer_index, input_size, hidden_size, has_stack, unit_type='lstm', stack_width=None,
                  stack_depth=None, bias=True, k_mask_func=None):
@@ -489,12 +562,51 @@ class StackRNN(nn.Module):
         return new_stack
 
 
-class StackRNNLinear(nn.Module):
-    """Linearly projects Stack RNN outputs to a fixed dimension"""
+# class StackRNNLinear(nn.Module):
+#     """Linearly projects Stack RNN outputs to a fixed dimension"""
+#
+#     def __init__(self, out_dim, hidden_size, bidirectional, bias=True):  # , encoder, bias=True, dropout=0.):
+#         super(StackRNNLinear, self).__init__()
+#         # assert isinstance(encoder, Encoder)
+#         self.bias = bias
+#         if bidirectional:
+#             num_dir = 2
+#         else:
+#             num_dir = 1
+#         in_dim = hidden_size * num_dir
+#         self.decoder = nn.Linear(in_dim, out_dim)
+#         # self.linear_res = nn.Linear(in_dim, in_dim)
+#         # if self.bias:
+#         #     self.bias_param = nn.Parameter(torch.zeros(out_dim))
+#         # self.encoder = encoder
+#         # self.sublayer = SublayerConnection(in_dim, dropout)
+#
+#     def forward(self, rnn_input):
+#         """
+#         Takes the output of a Stack RNN and linearly projects each element.
+#
+#         Arguments:
+#         ----------
+#         :param rnn_input: tuple
+#             A tuple where the RNN output is the first element of shape (seq_len, batch_size, num_dir * hidden_size)
+#         :return: tensor
+#             Shape: (seq_len, batch_size, out_dim)
+#         """
+#         x = rnn_input[0]
+#         # x = self.sublayer(x, self.linear_res)
+#         # weights = self.encoder.embeddings_weight()
+#         # if self.bias:
+#         #     x = F.linear(x, weights, self.bias_param)
+#         # else:
+#         #     x = F.linear(x, weights)
+#         rnn_input[0] = self.decoder(x)
+#         return rnn_input
+
+class RNNLinearOut(nn.Module):
+    """Linearly projects RNN outputs to a fixed dimension"""
 
     def __init__(self, out_dim, hidden_size, bidirectional, bias=True):  # , encoder, bias=True, dropout=0.):
-        super(StackRNNLinear, self).__init__()
-        # assert isinstance(encoder, Encoder)
+        super(RNNLinearOut, self).__init__()
         self.bias = bias
         if bidirectional:
             num_dir = 2
@@ -502,32 +614,24 @@ class StackRNNLinear(nn.Module):
             num_dir = 1
         in_dim = hidden_size * num_dir
         self.decoder = nn.Linear(in_dim, out_dim)
-        # self.linear_res = nn.Linear(in_dim, in_dim)
-        # if self.bias:
-        #     self.bias_param = nn.Parameter(torch.zeros(out_dim))
-        # self.encoder = encoder
-        # self.sublayer = SublayerConnection(in_dim, dropout)
 
-    def forward(self, rnn_input):
+    def forward(self, inp):
         """
-        Takes the output of a Stack RNN and linearly projects each element.
+        Takes the output of an RNN and linearly projects each element.
 
         Arguments:
         ----------
-        :param rnn_input: tuple
+        :param inp: tuple or tensor
             A tuple where the RNN output is the first element of shape (seq_len, batch_size, num_dir * hidden_size)
         :return: tensor
             Shape: (seq_len, batch_size, out_dim)
         """
-        x = rnn_input[0]
-        # x = self.sublayer(x, self.linear_res)
-        # weights = self.encoder.embeddings_weight()
-        # if self.bias:
-        #     x = F.linear(x, weights, self.bias_param)
-        # else:
-        #     x = F.linear(x, weights)
-        rnn_input[0] = self.decoder(x)
-        return rnn_input
+        if isinstance(inp, list):
+            x = inp[0]
+            inp[0] = self.decoder(x)
+        else:
+            inp = self.decoder(inp)
+        return inp
 
 
 class StackedRNNDropout(nn.Module):

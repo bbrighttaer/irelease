@@ -549,12 +549,13 @@ def generate_smiles(generator, gen_data, init_args, prime_str='<', end_token='>'
     generator.eval()
     if gen_type == 'rnn':
         hidden_states = []
+        num_layers = init_args['num_layers'] if 'num_layers' in init_args else 1
         for _ in range(init_args['num_layers']):
-            hidden = init_hidden(num_layers=1, batch_size=num_samples,
+            hidden = init_hidden(num_layers=num_layers, batch_size=num_samples,
                                  hidden_size=init_args['hidden_size'],
                                  num_dir=init_args['num_dir'], dvc=init_args['device'])
             if init_args['has_cell']:
-                cell = init_cell(num_layers=1, batch_size=num_samples,
+                cell = init_cell(num_layers=num_layers, batch_size=num_samples,
                                  hidden_size=init_args['hidden_size'],
                                  num_dir=init_args['num_dir'], dvc=init_args['device'])
             else:

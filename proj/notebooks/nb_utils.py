@@ -13,7 +13,7 @@ import torch.nn as nn
 import numpy as np
 
 from irelease.data import GeneratorData
-from irelease.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, StackRNNLinear, CriticRNN, \
+from irelease.model import Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm, RNNLinearOut, CriticRNN, \
     RewardNetRNN
 from irelease.mol_metrics import verify_sequence, get_mol_metrics
 from irelease.predictor import RNNPredictor
@@ -70,10 +70,10 @@ def initialize(hparams, demo_data_gen, unbiased_data_gen, has_critic):
             rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
     agent_net = nn.Sequential(encoder,
                               *rnn_layers,
-                              StackRNNLinear(out_dim=demo_data_gen.n_characters,
-                                             hidden_size=hparams['d_model'],
-                                             bidirectional=False,
-                                             bias=True))
+                              RNNLinearOut(out_dim=demo_data_gen.n_characters,
+                                           hidden_size=hparams['d_model'],
+                                           bidirectional=False,
+                                           bias=True))
     agent_net = agent_net.to(device).eval()
     init_state_args = {'num_layers': hparams['agent_params']['num_layers'],
                        'hidden_size': hparams['d_model'],

@@ -6,31 +6,28 @@
 
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import os
 import argparse
-import math
-import time
 import copy
-from datetime import datetime as dt
+import math
+import os
 import random
+import time
+from datetime import datetime as dt
+
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim.lr_scheduler as sch
-from sklearn.metrics import accuracy_score
-from soek import CategoricalParam, LogRealParam, ConstantParam, RealParam, DiscreteParam, DataNode, RandomSearch, \
-    BayesianOptSearch
-from soek.bopt import GPMinArgs, GBRTMinArgs
-from soek.template import Trainer
-from torch.utils.tensorboard import SummaryWriter
-from tqdm import tqdm, trange
-
 from irelease.data import GeneratorData
-from irelease.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionTerminal, \
-    NonsatActivation, AttentionOptimizer, LinearOut, LabelSmoothing, get_std_opt
-from irelease.tboard import TBMeanTracker
+from irelease.model import StackDecoderLayer, Encoder, PositionalEncoding, AttentionTerminal
 from irelease.utils import Flags, get_default_tokens, parse_optimizer, ExpAverage, GradStats, Count, init_stack_2d, \
     time_since, generate_smiles
+from sklearn.metrics import accuracy_score
+from soek import CategoricalParam, LogRealParam, RealParam, DiscreteParam, DataNode, RandomSearch, \
+    BayesianOptSearch
+from soek.bopt import GPMinArgs
+from soek.template import Trainer
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import trange
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")

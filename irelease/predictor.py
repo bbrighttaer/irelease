@@ -226,6 +226,33 @@ class SVCPredictor(Predictor):
         return canonical_smiles, prediction, invalid_smiles
 
 
+class DummyPredictor(Predictor):
+    def predict(self, smiles, use_tqdm=False):
+        canonical_smiles = []
+        invalid_smiles = []
+        if use_tqdm:
+            pbar = tqdm(range(len(smiles)))
+        else:
+            pbar = range(len(smiles))
+        for i in pbar:
+            sm = smiles[i]
+            if use_tqdm:
+                pbar.set_description("Calculating predictions...")
+            try:
+                sm = Chem.MolToSmiles(Chem.MolFromSmiles(sm, sanitize=False))
+                if len(sm) == 0:
+                    invalid_smiles.append(sm)
+                else:
+                    canonical_smiles.append(sm)
+            except:
+                invalid_smiles.append(sm)
+        if len(canonical_smiles) == 0:
+            return canonical_smiles, [], invalid_smiles
+        prediction = np.zeros((len(canonical_smiles),))
+        prediction = np.array(prediction)
+        return canonical_smiles, prediction, invalid_smiles
+
+
 def get_logp_reward(smiles, predictor, invalid_reward=0.0):
     mol, pred, nan_smiles = predictor.predict([smiles])
     if len(nan_smiles) == 1:

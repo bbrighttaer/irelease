@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from irelease.data import GeneratorData
 from irelease.env import MoleculeEnv
-from irelease.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, StackRNNLinear, RewardNetRNN
+from irelease.model import Encoder, PositionalEncoding, StackDecoderLayer, LinearOut, StackRNN, RNNLinearOut, RewardNetRNN
 from irelease.reward import RewardFunction
 from irelease.rl import PolicyAgent, MolEnvProbabilityActionSelector, REINFORCE, GuidedRewardLearningIRL, \
     StateActionProbRegistry
@@ -136,7 +136,7 @@ class MyTestCase(unittest.TestCase):
         outputs = stack_rnn_1([x] + hidden_states)
         outputs = stack_rnn_2(outputs)
         assert len(outputs) > 1
-        linear = StackRNNLinear(4, hidden_size, bidirectional=False, )
+        linear = RNNLinearOut(4, hidden_size, bidirectional=False, )
         x = linear(outputs)
         print(x[0].shape)
 
@@ -216,7 +216,7 @@ class MyTestCase(unittest.TestCase):
         # Create agent network
         stack_rnn = StackRNN(1, d_model, hidden_size, True, 'lstm', stack_width, stack_depth,
                              k_mask_func=encoder.k_padding_mask)
-        stack_linear = StackRNNLinear(gen_data.n_characters, hidden_size, bidirectional=False)
+        stack_linear = RNNLinearOut(gen_data.n_characters, hidden_size, bidirectional=False)
         agent_net = torch.nn.Sequential(encoder, stack_rnn, stack_linear)
 
         # Create agent

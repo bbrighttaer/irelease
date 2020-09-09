@@ -27,7 +27,7 @@ from tqdm import tqdm
 
 from irelease.data import GeneratorData
 from irelease.env import MoleculeEnv
-from irelease.model import Encoder, StackRNN, StackRNNLinear, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
+from irelease.model import Encoder, StackRNN, RNNLinearOut, RewardNetRNN, StackedRNNDropout, StackedRNNLayerNorm
 from irelease.mol_metrics import verify_sequence, get_mol_metrics
 from irelease.predictor import RNNPredictor, get_logp_reward
 from irelease.reward import RewardFunction
@@ -94,10 +94,10 @@ class IReLeaSE(Trainer):
                 rnn_layers.append(StackedRNNLayerNorm(hparams['d_model']))
         agent_net = nn.Sequential(encoder,
                                   *rnn_layers,
-                                  StackRNNLinear(out_dim=demo_data_gen.n_characters,
-                                                 hidden_size=hparams['d_model'],
-                                                 bidirectional=False,
-                                                 bias=True))
+                                  RNNLinearOut(out_dim=demo_data_gen.n_characters,
+                                               hidden_size=hparams['d_model'],
+                                               bidirectional=False,
+                                               bias=True))
         agent_net = agent_net.to(device)
         optimizer_agent_net = parse_optimizer(hparams['agent_params'], agent_net)
         selector = MolEnvProbabilityActionSelector(actions=demo_data_gen.all_characters)
