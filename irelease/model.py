@@ -417,13 +417,14 @@ def get_std_opt(model, d_model):
 
 
 class RNNGenerator(nn.Module):
-    def __init__(self, input_size, hidden_size, unit_type='lstm', num_layers=1, bias=True, dropout=0.0):
+    def __init__(self, input_size, hidden_size, unit_type='lstm', num_layers=1, bias=True, dropout=0.0, device='cpu'):
         super(RNNGenerator, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.unit_type = unit_type
         self.num_layers = num_layers
         self.has_cell = False
+        self.device = device
         if self.unit_type == 'lstm':
             self.rnn = nn.LSTM(input_size, self.hidden_size, num_layers,
                                bidirectional=False,
@@ -445,9 +446,9 @@ class RNNGenerator(nn.Module):
         """
         batch_size = x.shape[1]
         # initial hidden states
-        h0 = torch.zeros((self.num_layers, batch_size, self.hidden_size))
+        h0 = torch.zeros((self.num_layers, batch_size, self.hidden_size)).to(self.device)
         if self.has_cell:
-            c0 = torch.zeros((self.num_layers, batch_size, self.hidden_size))
+            c0 = torch.zeros((self.num_layers, batch_size, self.hidden_size)).to(self.device)
             h0 = (h0, c0)
 
         # forward propagation

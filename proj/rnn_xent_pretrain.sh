@@ -1,0 +1,1 @@
+python rnn_xent_baseline.py --exp_type pretraining --demo ../data/logp_smiles_biased.smi --unbiased ../data/unbiased_smiles.smi --prior_data ../data/chembl.smi

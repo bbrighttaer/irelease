@@ -7,20 +7,18 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import argparse
+import copy
 import math
 import os
 import random
 import time
 from datetime import datetime as dt
-import copy
+
 import numpy as np
 import torch
 import torch.nn as nn
-from irelease.mol_metrics import verify_sequence, get_mol_metrics
-from irelease.predictor import RNNPredictor, XGBPredictor, DummyPredictor
 from ptan.common.utils import TBMeanTracker
-from sklearn.metrics import accuracy_score
-from soek import CategoricalParam, LogRealParam, RealParam, DiscreteParam, DataNode, RandomSearch, \
+from soek import DataNode, RandomSearch, \
     BayesianOptSearch
 from soek.bopt import GPMinArgs
 from soek.template import Trainer
@@ -28,10 +26,12 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 
 from irelease.data import GeneratorData
-from irelease.model import Encoder, StackRNN, RNNLinearOut, StackedRNNLayerNorm, StackedRNNDropout, OneHotEncoder, \
+from irelease.model import RNNLinearOut, OneHotEncoder, \
     RNNGenerator
-from irelease.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, init_hidden, init_cell, init_stack, \
-    generate_smiles, time_since, get_default_tokens, canonical_smiles
+from irelease.mol_metrics import verify_sequence, get_mol_metrics
+from irelease.predictor import RNNPredictor, XGBPredictor, DummyPredictor
+from irelease.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, generate_smiles, time_since, \
+    get_default_tokens, canonical_smiles
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -61,7 +61,8 @@ class RNNBaseline(Trainer):
                                            hidden_size=hparams['d_model'],
                                            unit_type=hparams['unit_type'],
                                            num_layers=hparams['num_layers'],
-                                           dropout=hparams['dropout']),
+                                           dropout=hparams['dropout'],
+                                           device=device),
                               RNNLinearOut(out_dim=prior_data_gen.n_characters,
                                            hidden_size=hparams['d_model'],
                                            bidirectional=False,
@@ -263,15 +264,17 @@ class RNNBaseline(Trainer):
                                 best_model_wts = copy.deepcopy(generator.state_dict())
                                 best_score = score_exp_avg.value
                                 best_epoch = epoch
-                        # End of mini=batch iterations.
 
-                        smiles = generate_smiles(generator=generator, gen_data=gen_data, init_args=rnn_args,
-                                                 num_samples=3)
-                        print(f'{time_since(start)}: Epoch {epoch}/{n_epochs}, loss={np.mean(epoch_losses)},'
-                              f'sample SMILES = {smiles}, Mean value of predictions = {np.mean(epoch_mean_preds)}, '
+                            if step_idx.i > 0 and step_idx.i % 1000 == 0:
+                                smiles = generate_smiles(generator=generator, gen_data=gen_data, init_args=rnn_args,
+                                                         num_samples=3)
+                                print(f'Sample SMILES = {smiles}')
+                        # End of mini=batch iterations.
+                        print(f'{time_since(start)}: Epoch {epoch + 1}/{n_epochs}, loss={np.mean(epoch_losses)},'
+                              f'Mean value of predictions = {np.mean(epoch_mean_preds)}, '
                               f'% of valid SMILES = {np.mean(epoch_per_valid)}')
 
-        except ValueError as e:
+        except RuntimeError as e:
             print(str(e))
 
         duration = time.time() - start
@@ -416,7 +419,7 @@ def main(flags):
                 results = trainer.train(generator=model,
                                         optimizer=optimizer,
                                         rnn_args=rnn_args,
-                                        n_iters=1500000,
+                                        n_iters=40000,
                                         sim_data_node=data_node,
                                         tb_writer=summary_writer_creator,
                                         is_pretraining=pretraining,
