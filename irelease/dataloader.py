@@ -36,11 +36,12 @@ def load_smiles_data(file, cv, normalize_y=True, k=5, header=0, index_col=0, del
         log('Loading data...')
         with open(save_dir, 'rb') as f:
             data_dict = joblib.load(f)
+            transformer = None
         if os.path.exists(trans_save_dir):
             with open(trans_save_dir, 'rb') as f:
                 transformer = joblib.load(f)
-            log('Data loaded successfully')
-            return data_dict, transformer
+        log('Data loaded successfully')
+        return data_dict, transformer
 
     # Read and process data
     dataframe = pd.read_csv(file, header=header, index_col=index_col, delimiter=delimiter)

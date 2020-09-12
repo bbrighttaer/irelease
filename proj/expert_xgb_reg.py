@@ -10,6 +10,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 import argparse
+import json
 import os
 import pickle
 import random
@@ -24,7 +25,7 @@ from soek.bopt import GPMinArgs
 from sklearn.metrics import r2_score, mean_squared_error
 
 from irelease.dataloader import load_smiles_data
-from irelease.utils import time_since, SmilesDataset
+from irelease.utils import time_since, SmilesDataset, root_mean_squared_error
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -47,7 +48,7 @@ class XGBExpert(Trainer):
              'seed': hparams['seed'], 'eval_metric': 'rmse', 'verbosity': 1}
 
         # metrics
-        metrics = [mean_squared_error, r2_score]
+        metrics = [mean_squared_error, root_mean_squared_error, r2_score]
         return p, {'train': train_data, 'val': val_data, 'test': test_data}, metrics
 
     @staticmethod
@@ -95,8 +96,59 @@ class XGBExpert(Trainer):
         return {'model': model, 'score': score, 'epoch': model.best_iteration}
 
     @staticmethod
-    def evaluate_model(*args, **kwargs):
-        super().evaluate_model(*args, **kwargs)
+    def evaluate_model(data, metrics, expert_model_dir, sim_data_node=None, k=-1):
+        start = time.time()
+
+        assert (os.path.isdir(expert_model_dir)), 'Expert predictor(s) should be in a dedicated folder'
+
+        # sub-nodes of sim data resource
+        loss_lst = []
+        loss_node = DataNode(label="loss", data=loss_lst)
+        metrics_dict = {}
+        metrics_node = DataNode(label="metrics", data=metrics_dict)
+        scores_lst = []
+        scores_node = DataNode(label="score", data=scores_lst)
+        predicted_vals = []
+        true_vals = []
+        model_preds_node = DataNode(label="predictions", data={"y_true": true_vals,
+                                                               "y_pred": predicted_vals})
+
+        # add sim data nodes to parent node
+        if sim_data_node:
+            sim_data_node.data = [loss_node, metrics_node, scores_node, model_preds_node]
+
+        model_files = os.listdir(expert_model_dir)
+        loaded = False
+        for i, m in enumerate(model_files):
+            m_path = os.path.join(expert_model_dir, m)
+            if 'transformer' in m:
+                with open(m_path, 'rb') as f:
+                    transformer = joblib.load(f)
+            suffix = m.split('_')[-1].split('.')[0]  # fold label should be a suffix e.g. xxx_k0.mod, xxx_k1.mod, etc.
+            if suffix == f'k{k}' and not loaded:
+                with open(os.path.join(expert_model_dir, m), 'rb') as f:
+                    predictor = joblib.load(f)
+                    loaded = True
+
+        if not loaded:
+            return None
+
+        dmatrix_eval = xgb.DMatrix(data=data['test'].X, label=data['test'].y.reshape(-1, ))
+
+        # evaluation
+        y_hat = predictor.predict(dmatrix_eval).reshape(-1, )
+        y_true = dmatrix_eval.get_label().reshape(-1, )
+        eval_dict = {}
+        score = XGBExpert.evaluate(eval_dict, transformer.inverse_transform(y_true),
+                                   transformer.inverse_transform(y_hat), metrics)
+        scores_lst.append(score)
+        for m in eval_dict:
+            if m in metrics_dict:
+                metrics_dict[m].append(float(eval_dict[m]))
+            else:
+                metrics_dict[m] = [float(eval_dict[m])]
+
+        print('Evaluation completed: score={}, metrics={}, time{}'.format(score, eval_dict, time_since(start)))
 
     @staticmethod
     def save_model(model, path, name):
@@ -113,13 +165,18 @@ class XGBExpert(Trainer):
 
 def main(flags):
     mode = 'eval' if flags.eval else 'train'
-    sim_label = f'expert_XGBoost_model_{mode}'
+    sim_label = f'expert_XGBoost_model_reg_{mode}'
 
     print('--------------------------------------------------------------------------------')
     print(f'{sim_label}\tData file: {flags.data_file}')
     print('--------------------------------------------------------------------------------')
 
-    sim_data = DataNode(label=sim_label, metadata=date_label)
+    sim_data = DataNode(label=sim_label, metadata=json.dumps({'date': date_label,
+                                                              'seeds': seeds,
+                                                              'mode': mode,
+                                                              'sim_label': sim_label,
+                                                              'num_folds': flags.folds
+                                                              }))
     nodes_list = []
     sim_data.data = nodes_list
 
@@ -196,7 +253,7 @@ def start_fold(sim_data_node, data_dict, transformer, flags, hyper_params, train
                                                    val_dataset=data["val"] if 'val' in data else None,
                                                    test_dataset=data["test"])
     if flags.eval:
-        pass
+        trainer.evaluate_model(data, metrics, flags.eval_model_dir, k=k, sim_data_node=sim_data_node)
     else:
         # Train the model
         results = trainer.train(xgb_params, data, metrics, n_iters=10000, transformer=transformer,
@@ -270,10 +327,10 @@ if __name__ == '__main__':
     parser.add_argument('--eval',
                         action='store_true',
                         help='If true, a saved model is loaded and evaluated')
-    parser.add_argument('--eval_model_name',
+    parser.add_argument('--eval_model_dir',
                         default=None,
                         type=str,
-                        help='The filename of the model to be loaded from the directory specified in --model_dir')
+                        help='The directory containing the all models (and transformer) to be evaluated')
 
     # Package all arguments
     args = parser.parse_args()

@@ -14,6 +14,7 @@ from rdkit import RDLogger
 from sklearn.model_selection import KFold, StratifiedKFold
 from torch.utils.data import Dataset
 from tqdm import trange
+from sklearn.metrics import mean_squared_error
 
 from irelease.mol_graphs import ConvMol
 
@@ -775,3 +776,15 @@ class SmilesDataset(Dataset):
 
     def __getitem__(self, item):
         return self.X[item], self.y[item]
+
+
+def np_to_plot_data(y):
+    y = y.squeeze()
+    if y.shape == ():
+        return [float(y)]
+    else:
+        return y.squeeze().tolist()
+
+
+def root_mean_squared_error(*args, **kwargs):
+    return mean_squared_error(*args, **kwargs, squared=False)

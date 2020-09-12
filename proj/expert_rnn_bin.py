@@ -7,6 +7,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import contextlib
+import json
 import os
 import argparse
 import time
@@ -14,9 +15,11 @@ import copy
 from collections import defaultdict
 from datetime import datetime as dt
 import random
+
+import joblib
 import numpy as np
 import torch
-from sklearn.metrics import accuracy_score, roc_auc_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from soek.bopt import GPMinArgs
 from torch.optim.lr_scheduler import ExponentialLR
 from torch.utils.data import Dataset, DataLoader
@@ -26,7 +29,7 @@ from tqdm import tqdm
 
 from irelease.model import RNNPredictorModel
 from irelease.dataloader import load_smiles_data
-from irelease.utils import Flags, get_default_tokens, parse_optimizer, time_since, DummyException
+from irelease.utils import Flags, get_default_tokens, parse_optimizer, time_since, DummyException, np_to_plot_data
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
@@ -67,6 +70,8 @@ class ExpertTrainer(Trainer):
             val_loader = DataLoader(SmilesDataset(val_data[0], val_data[1]),
                                     batch_size=hparams['batch'],
                                     collate_fn=lambda x: x)
+        else:
+            val_loader = None
         test_loader = DataLoader(SmilesDataset(test_data[0], test_data[1]),
                                  batch_size=hparams['batch'],
                                  collate_fn=lambda x: x)
@@ -80,7 +85,7 @@ class ExpertTrainer(Trainer):
                                                       device=device),
                                     torch.nn.Sigmoid()).to(device)
         optimizer = parse_optimizer(hparams, model)
-        metrics = [accuracy_score, f1_score]
+        metrics = [accuracy_score, precision_score, recall_score, f1_score]
 
         return {'data_loaders': {'train': train_loader,
                                  'val': val_loader if val_data else None,
@@ -179,8 +184,74 @@ class ExpertTrainer(Trainer):
         return {'model': predictor, 'score': best_score, 'epoch': best_epoch}
 
     @staticmethod
-    def evaluate_model(*args, **kwargs):
-        super().evaluate_model(*args, **kwargs)
+    def evaluate_model(init_dict, expert_model_dir, sim_data_node=None, k=-1):
+        start = time.time()
+        predictor = init_dict['model']
+        data_loaders = init_dict['data_loaders']
+        metrics = init_dict['metrics']
+        criterion = torch.nn.BCELoss()
+
+        assert (os.path.isdir(expert_model_dir)), 'Expert predictor(s) should be in a dedicated folder'
+
+        # sub-nodes of sim data resource
+        loss_lst = []
+        loss_node = DataNode(label="loss", data=loss_lst)
+        metrics_dict = {}
+        metrics_node = DataNode(label="metrics", data=metrics_dict)
+        scores_lst = []
+        scores_node = DataNode(label="score", data=scores_lst)
+        predicted_vals = []
+        true_vals = []
+        model_preds_node = DataNode(label="predictions", data={"y_true": true_vals,
+                                                               "y_pred": predicted_vals})
+
+        # add sim data nodes to parent node
+        if sim_data_node:
+            sim_data_node.data = [loss_node, metrics_node, scores_node, model_preds_node]
+
+        model_files = os.listdir(expert_model_dir)
+        loaded = False
+        for i, m in enumerate(model_files):
+            m_path = os.path.join(expert_model_dir, m)
+            if 'transformer' in m:
+                with open(m_path, 'rb') as f:
+                    transformer = joblib.load(f)
+            suffix = m.split('_')[-1].split('.')[0]  # fold label should be a suffix e.g. xxx_k0.mod, xxx_k1.mod, etc.
+            if suffix == f'k{k}' and not loaded:
+                predictor.load_state_dict(torch.load(m_path, torch.device(device)))
+                print(f'Loaded model: {m_path}')
+                loaded = True
+        predictor = predictor.eval()
+
+        if not loaded:
+            return None
+
+        for batch in tqdm(data_loaders['test'], desc=f'Evaluating...'):
+            batch = np.array(batch)
+            x = batch[:, 0]
+            y_true = batch[:, 1]
+            with torch.set_grad_enabled(False):
+                y_true = torch.from_numpy(y_true.reshape(-1, 1).astype(np.float)).float().to(device)
+                y_pred = predictor(x)
+                loss = criterion(y_pred, y_true)
+                loss_lst.append(loss.item())
+
+            # Perform evaluation using the given metrics
+            eval_dict = {}
+            score = ExpertTrainer.evaluate(eval_dict, y_true.cpu().detach().numpy(),
+                                           y_pred.cpu().detach().numpy(),
+                                           metrics)
+            scores_lst.append(score)
+
+            predicted_vals.extend(np_to_plot_data(y_pred))
+            true_vals.extend(np_to_plot_data(y_true))
+            for m in eval_dict:
+                if m in metrics_dict:
+                    metrics_dict[m].append(eval_dict[m])
+                else:
+                    metrics_dict[m] = [eval_dict[m]]
+
+        print(f'Evaluation completed. Elapsed time: {time_since(start)}')
 
     @staticmethod
     def save_model(model, path, name):
@@ -203,7 +274,12 @@ def main(flags):
 
     hparam_search = None
 
-    sim_data = DataNode(label=sim_label, metadata=date_label)
+    sim_data = DataNode(label=sim_label, metadata=json.dumps({'date': date_label,
+                                                              'seeds': seeds,
+                                                              'mode': mode,
+                                                              'sim_label': sim_label,
+                                                              'num_folds': flags.folds
+                                                              }))
     nodes_list = []
     sim_data.data = nodes_list
 
@@ -212,7 +288,7 @@ def main(flags):
                                               index_col=False, shuffle=5, create_val=False, train_size=.8)
 
     for seed in seeds:
-        data_node = DataNode(label="seed_%d" % seed)
+        data_node = DataNode(label=f"seed_{seed}")
         nodes_list.append(data_node)
 
         # ensure reproducibility
@@ -284,7 +360,7 @@ def start_fold(sim_data_node, data_dict, transformer, flags, hyper_params, train
                                    val_data=data["val"] if 'val' in data else None,
                                    test_data=data["test"])
     if flags.eval:
-        pass
+        trainer.evaluate_model(init_args, flags.eval_model_dir, sim_data_node, k)
     else:
         # Train the model
         results = trainer.train(init_args, n_iterations=5000, transformer=transformer, sim_data_node=sim_data_node,
@@ -339,10 +415,10 @@ if __name__ == '__main__':
     parser.add_argument('--eval',
                         action='store_true',
                         help='If true, a saved model is loaded and evaluated')
-    parser.add_argument('--eval_model_name',
+    parser.add_argument('--eval_model_dir',
                         default=None,
                         type=str,
-                        help='The filename of the model to be loaded from the directory specified in --model_dir')
+                        help='The directory containing the all models (and transformer) to be evaluated')
 
     # Package all arguments
     args = parser.parse_args()
