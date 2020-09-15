@@ -65,7 +65,7 @@ class GeneratorData(object):
         self.pad_symbol = pad_symbol
         self.file = []
         for i in range(len(data)):
-            if len(data[i]) <= max_len:
+            if len(data[i].strip()) <= max_len:
                 self.file.append(self.start_token + data[i].strip() + self.end_token)
         self.file_len = len(self.file)
         self.all_characters, self.char2idx, \

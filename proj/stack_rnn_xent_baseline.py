@@ -18,16 +18,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 from ptan.common.utils import TBMeanTracker
-from soek import DataNode, RandomSearch, \
-    BayesianOptSearch
+from soek import DataNode, RandomSearch, BayesianOptSearch
 from soek.bopt import GPMinArgs
 from soek.template import Trainer
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 
 from irelease.data import GeneratorData
-from irelease.model import RNNLinearOut, OneHotEncoder, \
-    RNNGenerator, Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm
+from irelease.model import RNNLinearOut, Encoder, StackRNN, StackedRNNDropout, StackedRNNLayerNorm
 from irelease.mol_metrics import verify_sequence, get_mol_metrics
 from irelease.predictor import RNNPredictor, XGBPredictor, DummyPredictor
 from irelease.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, generate_smiles, time_since, \
@@ -39,7 +37,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 2
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -102,7 +100,7 @@ class StackRNNBaseline(Trainer):
                                      'jak2_max': XGBPredictor(hparams['jak2']),
                                      'jak2_min': XGBPredictor(hparams['jak2'])
                                      }.get(hparams['exp_type']),
-                    'exp_type': hparams['exp_type'],}
+                    'exp_type': hparams['exp_type'], }
         return model, optimizer, rnn_args
 
     @staticmethod
@@ -148,7 +146,7 @@ class StackRNNBaseline(Trainer):
 
     @staticmethod
     def train(generator, optimizer, rnn_args, pretrained_net_path=None, pretrained_net_name=None, n_iters=5000,
-              sim_data_node=None, tb_writer=None, is_hsearch=False, is_pretraining=True, grad_clipping=5):
+              sim_data_node=None, tb_writer=None, is_hsearch=False, is_pretraining=True, grad_clipping=None):
         expert_model = rnn_args['expert_model']
         tb_writer = tb_writer()
         best_model_wts = generator.state_dict()
@@ -201,6 +199,7 @@ class StackRNNBaseline(Trainer):
             baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
             step_idx = Count()
             gen_data = prior_data_gen if is_pretraining else demo_data_gen
+            n_epochs = 20
             with TBMeanTracker(tb_writer, 1) as tracker:
                 mode = 'Pretraining' if is_pretraining else 'Fine tuning'
                 for epoch in range(n_epochs):
@@ -208,8 +207,10 @@ class StackRNNBaseline(Trainer):
                     epoch_mean_preds = []
                     epoch_per_valid = []
                     with grad_stats:
-                        for b in trange(0, num_batches, desc=f'{mode} in progress...'):
+                        for b in trange(0, num_batches, desc=f'Epoch {epoch + 1}/{n_epochs}, {mode} in progress...'):
                             inputs, labels = gen_data.random_training_set()
+                            inputs = inputs.to(device)
+                            labels = labels.to(device)
                             batch_size, seq_len = inputs.shape[:2]
                             optimizer.zero_grad()
 
@@ -386,7 +387,7 @@ def main(flags):
     pretraining = flags.exp_type == 'pretraining'
 
     for seed in seeds:
-        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease_tb"
+        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease_tb_stack_rnn"
                                                                "/{}_{}_{}/".format(sim_label, seed, dt.now().strftime(
             "%Y_%m_%d__%H_%M_%S")))
 
@@ -399,9 +400,9 @@ def main(flags):
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-        print('--------------------------------------------------------------------------------')
-        print(f'{device}\n{sim_label}\tDemonstrations file: {flags.prior_data if pretraining else flags.demo_data}')
-        print('--------------------------------------------------------------------------------')
+        print('-----------------------------------------------------------------------------------------------')
+        print(f'{device}\n{sim_label}\tDemonstrations file: {flags.prior_data if pretraining else flags.demo_file}')
+        print('-----------------------------------------------------------------------------------------------')
 
         trainer = StackRNNBaseline()
         k = 1

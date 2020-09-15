@@ -1,0 +1,1 @@
+python stack_rnn_xent_baseline.py --exp_type jak2_max --demo ../data/jak2_max_smiles_biased.smi --unbiased ../data/unbiased_smiles.smi --prior_data ../data/chembl.smi --pretrained_model irelease_prior_2_layers_2020_04_27_0.714.mod

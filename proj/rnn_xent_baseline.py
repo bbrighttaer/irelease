@@ -17,26 +17,25 @@ from datetime import datetime as dt
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.optim.lr_scheduler as sch
 from ptan.common.utils import TBMeanTracker
-from soek import DataNode, RandomSearch, \
-    BayesianOptSearch
+from soek import DataNode, RandomSearch, BayesianOptSearch
 from soek.bopt import GPMinArgs
 from soek.template import Trainer
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange
 
 from irelease.data import GeneratorData
-from irelease.model import RNNLinearOut, OneHotEncoder, \
-    RNNGenerator
+from irelease.model import RNNLinearOut, OneHotEncoder, RNNGenerator
 from irelease.mol_metrics import verify_sequence, get_mol_metrics
 from irelease.predictor import RNNPredictor, XGBPredictor, DummyPredictor
 from irelease.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count, generate_smiles, time_since, \
-    get_default_tokens, canonical_smiles
+    get_default_tokens, canonical_smiles, count_parameters
 
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [1]
+seeds = [5]
 
 if torch.cuda.is_available():
     dvc_id = 1
@@ -46,6 +45,8 @@ if torch.cuda.is_available():
 else:
     device = 'cpu'
     use_cuda = None
+
+smiles_max_len = 64
 
 
 class RNNBaseline(Trainer):
@@ -88,6 +89,7 @@ class RNNBaseline(Trainer):
                     'prior_data_gen': prior_data_gen,
                     'exp_type': hparams['exp_type'],
                     }
+        print(f'Number of model parameters={count_parameters(model)}')
         return model, optimizer, gen_args
 
     @staticmethod
@@ -98,7 +100,7 @@ class RNNBaseline(Trainer):
                                   cols_to_read=[0],
                                   keep_header=False,
                                   pad_symbol=' ',
-                                  max_len=120,
+                                  max_len=smiles_max_len,
                                   tokens=tokens,
                                   use_cuda=use_cuda)
         unbiased_data = GeneratorData(training_data_path=flags.unbiased_file,
@@ -106,7 +108,7 @@ class RNNBaseline(Trainer):
                                       cols_to_read=[0],
                                       keep_header=True,
                                       pad_symbol=' ',
-                                      max_len=120,
+                                      max_len=smiles_max_len,
                                       tokens=tokens,
                                       use_cuda=use_cuda)
         prior_data = GeneratorData(training_data_path=flags.prior_data,
@@ -114,7 +116,7 @@ class RNNBaseline(Trainer):
                                    cols_to_read=[0],
                                    keep_header=True,
                                    pad_symbol=' ',
-                                   max_len=120,
+                                   max_len=smiles_max_len,
                                    tokens=tokens,
                                    use_cuda=use_cuda)
         return {'demo_data': demo_data, 'unbiased_data': unbiased_data, 'prior_data': prior_data}
@@ -153,7 +155,7 @@ class RNNBaseline(Trainer):
         grad_stats = GradStats(generator, beta=0.)
 
         # learning rate decay schedulers
-        # scheduler = sch.StepLR(optimizer, step_size=500, gamma=0.01)
+        scheduler = sch.StepLR(optimizer, step_size=100, gamma=0.02)
 
         # pred_loss functions
         criterion = nn.CrossEntropyLoss(ignore_index=prior_data_gen.char2idx[prior_data_gen.pad_symbol])
@@ -188,12 +190,13 @@ class RNNBaseline(Trainer):
             gen_data = prior_data_gen if is_pretraining else demo_data_gen
             with TBMeanTracker(tb_writer, 1) as tracker:
                 mode = 'Pretraining' if is_pretraining else 'Fine tuning'
+                n_epochs = 10
                 for epoch in range(n_epochs):
                     epoch_losses = []
                     epoch_mean_preds = []
                     epoch_per_valid = []
                     with grad_stats:
-                        for b in trange(0, num_batches, desc=f'{mode} in progress...'):
+                        for b in trange(0, num_batches, desc=f'Epoch {epoch + 1}/{n_epochs}, {mode} in progress...'):
                             inputs, labels = gen_data.random_training_set()
                             optimizer.zero_grad()
 
@@ -211,11 +214,13 @@ class RNNBaseline(Trainer):
                             if grad_clipping:
                                 torch.nn.utils.clip_grad_norm_(generator.parameters(), grad_clipping)
                             optimizer.step()
+                            # scheduler.step()
 
                             # for sim data resource
                             n_to_generate = 200
                             with torch.set_grad_enabled(False):
-                                samples = generate_smiles(generator, demo_data_gen, rnn_args, num_samples=n_to_generate)
+                                samples = generate_smiles(generator, demo_data_gen, rnn_args, num_samples=n_to_generate,
+                                                          max_len=smiles_max_len)
                             samples_pred = expert_model(samples)[1]
 
                             # metrics
@@ -228,6 +233,8 @@ class RNNBaseline(Trainer):
                                 tracker.track(f'{k}', eval_dict[k], step_idx.i)
                             mean_preds = np.mean(samples_pred)
                             epoch_mean_preds.append(mean_preds)
+                            per_valid = len(samples_pred) / n_to_generate
+                            epoch_per_valid.append(per_valid)
                             if exp_type == 'drd2':
                                 per_qualified = float(len([v for v in samples_pred if v >= 0.8])) / len(samples_pred)
                                 score = mean_preds
@@ -243,10 +250,8 @@ class RNNBaseline(Trainer):
                                 diff = demo_score - mean_preds
                                 score = np.exp(diff)
                             else:  # pretraining
-                                score = -loss.item()
+                                score = per_valid  # -loss.item()
                                 per_qualified = 0.
-                            per_valid = len(samples_pred) / n_to_generate
-                            epoch_per_valid.append(per_valid)
                             unbiased_smiles_mean_pred.append(float(baseline_score))
                             biased_smiles_mean_pred.append(float(demo_score))
                             gen_smiles_mean_pred.append(float(mean_preds))
@@ -267,7 +272,7 @@ class RNNBaseline(Trainer):
 
                             if step_idx.i > 0 and step_idx.i % 1000 == 0:
                                 smiles = generate_smiles(generator=generator, gen_data=gen_data, init_args=rnn_args,
-                                                         num_samples=3)
+                                                         num_samples=3, max_len=smiles_max_len)
                                 print(f'Sample SMILES = {smiles}')
                         # End of mini=batch iterations.
                         print(f'{time_since(start)}: Epoch {epoch + 1}/{n_epochs}, loss={np.mean(epoch_losses)},'
@@ -427,7 +432,7 @@ def main(flags):
                                         pretrained_net_name=flags.pretrained_model)
                 trainer.save_model(results['model'], flags.model_dir,
                                    name=f'rnn_xent_gen_baseline_{flags.exp_type}_{hyper_params["unit_type"]}_'
-                                        f'{date_label}_{results["score"]}_{results["epoch"]}')
+                                        f'{date_label}_{results["score"]}_{results["epoch"]}_seed_{seed}')
 
     # save simulation data resource tree to file.
     sim_data.to_json(path="./analysis/")
@@ -441,6 +446,7 @@ def default_hparams(args):
         'd_model': 1024,
         'batch_size': 128,
         'optimizer': 'adam',
+        # 'optimizer__global__lr': 0.0005,
         'exp_type': args.exp_type,
         'drd2': {'model_dir': './model_dir/expert_rnn_bin',
                  'd_model': 128,
