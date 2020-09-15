@@ -35,7 +35,7 @@ from irelease.utils import Flags, parse_optimizer, ExpAverage, GradStats, Count,
 currentDT = dt.now()
 date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 
-seeds = [5]
+seeds = [12]
 
 if torch.cuda.is_available():
     dvc_id = 1
