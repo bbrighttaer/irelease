@@ -38,7 +38,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [12]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -53,6 +53,8 @@ class RNNBaseline(Trainer):
     @staticmethod
     def initialize(hparams, demo_data_gen, unbiased_data_gen, prior_data_gen, *args, **kwargs):
         prior_data_gen.set_batch_size(hparams['batch_size'])
+        demo_data_gen.set_batch_size(hparams['batch_size'])
+
         # Create main model
         encoder = OneHotEncoder(vocab_size=prior_data_gen.n_characters, return_tuple=False, device=device)
 
@@ -190,7 +192,7 @@ class RNNBaseline(Trainer):
             gen_data = prior_data_gen if is_pretraining else demo_data_gen
             with TBMeanTracker(tb_writer, 1) as tracker:
                 mode = 'Pretraining' if is_pretraining else 'Fine tuning'
-                n_epochs = 10
+                n_epochs = 20
                 for epoch in range(n_epochs):
                     epoch_losses = []
                     epoch_mean_preds = []
@@ -355,7 +357,7 @@ def main(flags):
     pretraining = flags.exp_type == 'pretraining'
 
     for seed in seeds:
-        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease_tb"
+        summary_writer_creator = lambda: SummaryWriter(log_dir="irelease_tb_rnn_xent"
                                                                "/{}_{}_{}/".format(sim_label, seed, dt.now().strftime(
             "%Y_%m_%d__%H_%M_%S")))
 
@@ -369,7 +371,7 @@ def main(flags):
         torch.cuda.manual_seed_all(seed)
 
         print('--------------------------------------------------------------------------------')
-        print(f'{device}\n{sim_label}\tDemonstrations file: {flags.prior_data if pretraining else flags.demo_data}')
+        print(f'{device}\n{sim_label}\tDemonstrations file: {flags.prior_data if pretraining else flags.demo_file}')
         print('--------------------------------------------------------------------------------')
 
         trainer = RNNBaseline()
