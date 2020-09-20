@@ -37,7 +37,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 2
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -199,7 +199,7 @@ class StackRNNBaseline(Trainer):
             baseline_score = np.mean(expert_model(unbiased_data_gen.random_training_set_smiles(1000))[1])
             step_idx = Count()
             gen_data = prior_data_gen if is_pretraining else demo_data_gen
-            n_epochs = 20
+            n_epochs = 2
             with TBMeanTracker(tb_writer, 1) as tracker:
                 mode = 'Pretraining' if is_pretraining else 'Fine tuning'
                 for epoch in range(n_epochs):
@@ -449,7 +449,7 @@ def main(flags):
             if flags.eval:
                 load_model = trainer.load_model(flags.model_dir, flags.eval_model_name)
                 model.load_state_dict(load_model)
-                # trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=10000)
+                trainer.evaluate_model(model, data_gens['demo_data'], rnn_args, data_node, num_smiles=10000)
             else:
                 results = trainer.train(generator=model,
                                         optimizer=optimizer,

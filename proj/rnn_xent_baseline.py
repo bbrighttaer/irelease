@@ -192,7 +192,7 @@ class RNNBaseline(Trainer):
             gen_data = prior_data_gen if is_pretraining else demo_data_gen
             with TBMeanTracker(tb_writer, 1) as tracker:
                 mode = 'Pretraining' if is_pretraining else 'Fine tuning'
-                n_epochs = 20
+                n_epochs = 1
                 for epoch in range(n_epochs):
                     epoch_losses = []
                     epoch_mean_preds = []
@@ -301,12 +301,14 @@ class RNNBaseline(Trainer):
         count = 0
         for _ in range(int(num_smiles / step)):
             samples.extend(generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
-                                           num_samples=step, is_train=False, verbose=True))
+                                           num_samples=step, is_train=False, verbose=True,
+                                           max_len=smiles_max_len))
             count += step
         res = num_smiles - count
         if res > 0:
-            samples.extend(generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args,
-                                           num_samples=res, is_train=False, verbose=True))
+            samples.extend(
+                generate_smiles(generator=model, gen_data=gen_data, init_args=rnn_args, num_samples=res, is_train=False,
+                                verbose=True, max_len=smiles_max_len))
         smiles, valid_vec = canonical_smiles(samples)
         valid_smiles = []
         invalid_smiles = []
@@ -421,7 +423,7 @@ def main(flags):
             if flags.eval:
                 load_model = trainer.load_model(flags.model_dir, flags.eval_model_name)
                 model.load_state_dict(load_model)
-                # trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=10000)
+                trainer.evaluate_model(model, data_gens['demo_data'], rnn_args, data_node, num_smiles=200)
             else:
                 results = trainer.train(generator=model,
                                         optimizer=optimizer,
