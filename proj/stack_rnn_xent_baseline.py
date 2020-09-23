@@ -181,10 +181,10 @@ class StackRNNBaseline(Trainer):
         biased_smiles_mean_pred_data_node = DataNode('biased_mean_vals', biased_smiles_mean_pred)
         gen_smiles_mean_pred_data_node = DataNode('gen_mean_vals', gen_smiles_mean_pred)
         if sim_data_node:
-            sim_data_node.data = [train_loss_node,
-                                  unbiased_smiles_mean_pred_data_node,
+            sim_data_node.data = [unbiased_smiles_mean_pred_data_node,
                                   biased_smiles_mean_pred_data_node,
-                                  gen_smiles_mean_pred_data_node]
+                                  gen_smiles_mean_pred_data_node,
+                                  train_loss_node]
 
         # load pretrained model
         if pretrained_net_path and pretrained_net_name:

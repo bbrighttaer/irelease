@@ -288,6 +288,8 @@ def smiles_from_json_data(file):
         with open(file, 'r') as f:
             data = json.load(f)
         for k in data:
+            if k == 'metadata':
+                continue
             if data[k]:
                 for seed_data in data[k]:
                     for gen in seed_data:

@@ -389,7 +389,7 @@ class IReLeaSE(Trainer):
 def main(flags):
     irl_lbl = 'no_irl' if flags.use_true_reward else 'with_irl'
     sim_label = flags.exp_name + '_min_IReLeaSE-REINFORCE_' + irl_lbl + ('_no_vflag' if flags.no_smiles_validity_flag else '')
-    sim_data = DataNode(label=sim_label)
+    sim_data = DataNode(label=sim_label, metadata={'exp': flags.exp_name, 'date': date_label})
     nodes_list = []
     sim_data.data = nodes_list
 

@@ -449,7 +449,7 @@ def main(flags):
         reward_label = ''
     sim_label = flags.exp_name + '_IReLeaSE-PPO_' + (
         reward_label if flags.use_true_reward else 'with_irl') + ('_no_vflag' if flags.no_smiles_validity_flag else '')
-    sim_data = DataNode(label=sim_label)
+    sim_data = DataNode(label=sim_label, metadata={'exp': flags.exp_name, 'date': date_label})
     nodes_list = []
     sim_data.data = nodes_list
 
