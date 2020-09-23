@@ -377,7 +377,7 @@ def main(flags):
     sim_label = f'Stack_RNN_XEnt_Generator_Baseline_{flags.exp_type}'
     if flags.eval:
         sim_label += '_eval'
-    sim_data = DataNode(label=sim_label)
+    sim_data = DataNode(label=sim_label, metadata={'exp': flags.exp_type, 'date': date_label})
     nodes_list = []
     sim_data.data = nodes_list
 
