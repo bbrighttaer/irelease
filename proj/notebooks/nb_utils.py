@@ -294,3 +294,6 @@ def smiles_from_json_data(file):
                         valid_smiles.extend(seed_data[gen][0]['valid_smiles'])
                         invalid_smiles.extend(seed_data[gen][1]['invalid_smiles'])
     return valid_smiles, invalid_smiles
+
+# if __name__ == '__main__':
+#     get_convergence_data('./jak2_min/JAK2_min_Stack_RNN_XEnt_Generator_Baseline.json')

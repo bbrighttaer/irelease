@@ -76,7 +76,7 @@ def batch_eval(out_dict, smiles, evaluator, batch_size=500):
 
 
 if __name__ == '__main__':
-    eval_files = [f for f in os.listdir('./analysis') if 'eval.json' in f]
+    eval_files = [f for f in os.listdir('./analysis/stack_rnn_tl_baseline') if 'eval.json' in f]
     eval_func = {'drd2': get_drd2_evaluator,
                  'logp': get_logp_evaluator,
                  'jak2': get_jak2_evaluator}
@@ -87,12 +87,12 @@ if __name__ == '__main__':
                                'jak2_max': '../data/jak2_max_smiles_biased.smi'}
     for i in trange(len(eval_files), desc='Processing SMILES...'):
         file = eval_files[i]
-        valid_smiles, invalid_smiles = smiles_from_json_data('./analysis/' + file)
+        valid_smiles, invalid_smiles = smiles_from_json_data('./analysis/stack_rnn_tl_baseline/' + file)
         eval_dict = {'SMILES': [], 'prediction': []}
         lbl = file.split('_')[0].lower()
         evaluator = eval_func[lbl]()
         batch_eval(eval_dict, valid_smiles, evaluator)
-        pd.DataFrame(eval_dict).to_csv('./analysis/' + file.replace('json', 'csv'), index=False)
+        pd.DataFrame(eval_dict).to_csv('./analysis/stack_rnn_tl_baseline/' + file.replace('json', 'csv'), index=False)
 
         # Unbiased SMILES
         unbiased_data_gen = GeneratorData(training_data_path=unbiased_smiles_file,
