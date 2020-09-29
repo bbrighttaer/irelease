@@ -1,1 +1,1 @@
-python pretrain_rnn.py --data ../data/chembl.smi
+python pretrain_rnn.py --data ../data/chembl.smi --exp_name pretraining --init_model irelease_prior_2_layers_2020_04_27_0.714.mod

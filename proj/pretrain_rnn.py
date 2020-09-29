@@ -35,7 +35,7 @@ date_label = currentDT.strftime("%Y_%m_%d__%H_%M_%S")
 seeds = [1]
 
 if torch.cuda.is_available():
-    dvc_id = 1
+    dvc_id = 0
     use_cuda = True
     device = f'cuda:{dvc_id}'
     torch.cuda.set_device(dvc_id)
@@ -150,7 +150,7 @@ class IreleasePretrain(Trainer):
             tb_idx = {'train': Count(), 'val': Count(), 'test': Count()}
             epoch_losses = []
             epoch_scores = []
-            for epoch in range(n_epochs):
+            for epoch in range(6):
                 phase = 'train'
 
                 # Iterate through mini-batches
@@ -228,6 +228,8 @@ class IreleasePretrain(Trainer):
                                                                                           init_args=rnn_args,
                                                                                           num_samples=1)
                                                                                       ))
+                    IreleasePretrain.save_model(model, './model_dir/', name=f'irelease-pretrained_stack-rnn_gru_'
+                                                                            f'{date_label}_epoch_{epoch}')
                 # End of mini=batch iterations.
         except RuntimeError as e:
             print(str(e))
@@ -294,7 +296,7 @@ def main(flags):
     sim_label = flags.exp_name if flags.exp_name else 'Irelease-pretraining-Stack-RNN'
     if flags.eval:
         sim_label += '_eval'
-    sim_data = DataNode(label=sim_label)
+    sim_data = DataNode(label=sim_label, metadata={'exp': flags.exp_name, 'date': date_label})
     nodes_list = []
     sim_data.data = nodes_list
 
@@ -366,6 +368,10 @@ def main(flags):
                 model.load_state_dict(load_model)
                 trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=10000)
             else:
+                if flags.init_model:
+                    load_model = trainer.load_model(flags.model_dir, flags.init_model)
+                    model.load_state_dict(load_model)
+                    print(f'Model weights {flags.init_model} loaded successfully!')
                 results = trainer.train(model=model,
                                         optimizer=optimizer,
                                         gen_data=gen_data,
@@ -443,6 +449,7 @@ if __name__ == '__main__':
                         help="The filename of the model to be loaded from the directory specified in --model_dir")
     parser.add_argument('--exp_name', type=str,
                         help='Name for the experiment. This would be added to saved model names')
+    parser.add_argument("--init_model", help="Initial model weights")
 
     args = parser.parse_args()
     flags = Flags()
