@@ -192,7 +192,7 @@ class RNNBaseline(Trainer):
             gen_data = prior_data_gen if is_pretraining else demo_data_gen
             with TBMeanTracker(tb_writer, 1) as tracker:
                 mode = 'Pretraining' if is_pretraining else 'Fine tuning'
-                n_epochs = 1
+                n_epochs = 30
                 for epoch in range(n_epochs):
                     epoch_losses = []
                     epoch_mean_preds = []
