@@ -366,7 +366,7 @@ def main(flags):
             if flags.eval:
                 load_model = trainer.load_model(flags.model_dir, flags.eval_model_name)
                 model.load_state_dict(load_model)
-                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=10000)
+                trainer.evaluate_model(model, gen_data, rnn_args, data_node, num_smiles=flags.num_smiles)
             else:
                 if flags.init_model:
                     load_model = trainer.load_model(flags.model_dir, flags.init_model)
@@ -450,6 +450,8 @@ if __name__ == '__main__':
     parser.add_argument('--exp_name', type=str,
                         help='Name for the experiment. This would be added to saved model names')
     parser.add_argument("--init_model", help="Initial model weights")
+    parser.add_argument('--num_smiles', type=int, default=10000,
+                        help='Number of SMILES to sample from a generator in eval mode', )
 
     args = parser.parse_args()
     flags = Flags()
