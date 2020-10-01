@@ -4,7 +4,7 @@ This repository contains the source codes of the
 paper. The work proposes a framework for training compound generators using 
 Deep Inverse Reinforcement Learning.
 
-![IReLeaSE_framework](./proj/framework.png) 
+<img src="./proj/framework.png" width="500" height="350" />
 
 ## Requirements
 ### Dependencies
@@ -61,10 +61,24 @@ The datasets used for training the models used as evaluation functions are:
 
 Pretraining dataset: [chembl.smi](./data/chembl.smi)
 
-## Pretraining
-The Stack-RNN model used in our work could be pretrained with the following command:
+## Usage
+Install the project as a standard python package from the project directory:
+```bash
+$ pip install -e .
+```
 
+Then `cd` into the `proj` directory:
+```bash
+$ cd proj/
+```
+
+### Pretraining
+The Stack-RNN model used in our work could be pretrained with the following command:
 ```bash
 $ cd proj
 $ python pretrain_rnn.py --data ../data/chembl.smi
 ```
+
+### Evaluation Functions
+
+
