@@ -679,19 +679,6 @@ def pad_sequences(seqs, max_length=None, pad_symbol=' '):
     return seqs, lengths
 
 
-def process_gconv_view_data(mols, device):
-    """Converts ConvMol sample(s) to pytorch tensor data"""
-    mol_data = []
-    multiConvMol = ConvMol.agglomerate_mols(mols)
-    mol_data.append(torch.from_numpy(multiConvMol.get_atom_features()).to(device))
-    mol_data.append(torch.from_numpy(multiConvMol.deg_slice).to(device))
-    mol_data.append(torch.tensor(multiConvMol.membership).to(device))
-    mol_data.append([mol.get_num_atoms() for mol in mols])
-    for i in range(1, len(multiConvMol.get_deg_adjacency_lists())):
-        mol_data.append(torch.from_numpy(multiConvMol.get_deg_adjacency_lists()[i]).to(device))
-    return mol_data
-
-
 def get_activation_func(activation):
     from irelease.model import NonsatActivation
     return {'relu': torch.nn.ReLU(),

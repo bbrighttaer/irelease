@@ -1,5 +1,5 @@
 # Author: bbrighttaer
-# Project: GPMT
+# Project: IReLeaSE
 # Date: 5/21/2020
 # Time: 9:56 AM
 # File: expert_rnn_reg.py

@@ -1,5 +1,5 @@
 # Author: bbrighttaer
-# Project: GPMT
+# Project: IReLeaSE
 # Date: 3/23/2020
 # Time: 12:03 PM
 # File: pretrain.py
@@ -306,7 +306,7 @@ class GpmtPretrain(Trainer):
 
 
 def main(flags):
-    sim_label = 'GPMT-pretraining-memory'
+    sim_label = 'IReLeaSE-pretraining-memory'
     sim_data = DataNode(label=sim_label)
     nodes_list = []
     sim_data.data = nodes_list

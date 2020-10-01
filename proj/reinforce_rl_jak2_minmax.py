@@ -1,5 +1,5 @@
 # Author: bbrighttaer
-# Project: GPMT
+# Project: IReLeaSE
 # Date: 4/8/2020
 # Time: 8:02 PM
 # File: reinforce_rl_logp.py

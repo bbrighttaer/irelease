@@ -1,5 +1,5 @@
 # Author: bbrighttaer
-# Project: GPMT
+# Project: IReLeaSE
 # Date: 5/18/2020
 # Time: 3:36 PM
 # File: smiles_worker.py

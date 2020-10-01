@@ -1,5 +1,5 @@
 # Author: bbrighttaer
-# Project: GPMT
+# Project: IReLeaSE
 # Date: 4/1/2020
 # Time: 4:42 PM
 # File: monte_carlo.py

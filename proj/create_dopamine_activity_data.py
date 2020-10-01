@@ -1,5 +1,5 @@
 # Author: bbrighttaer
-# Project: GPMT
+# Project: IReLeaSE
 # Date: 5/28/2020
 # Time: 4:22 PM
 # File: create_dopamine_activity_data.py

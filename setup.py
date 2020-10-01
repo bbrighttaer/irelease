@@ -1,5 +1,5 @@
 # Author: bbrighttaer
-# Project: GPMT
+# Project: IReLeaSE
 # Date: 
 # Time: 
 # File: setup.py.py
@@ -16,6 +16,5 @@ setup(
     author='Brighter Agyemang',
     author_email='brighteragyemang@gmail.com',
     description='',
-    install_requires=['gym', 'numpy', 'pytorch', 'soek', 'torch', 'rdkit', 'scikit-learn', 'tqdm',
-                                      'joblib']
+    install_requires=['gym', 'numpy', 'pytorch', 'soek', 'torch', 'rdkit', 'scikit-learn', 'tqdm', 'joblib']
 )

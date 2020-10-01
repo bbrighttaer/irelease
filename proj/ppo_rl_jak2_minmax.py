@@ -1,5 +1,5 @@
 # Author: bbrighttaer
-# Project: GPMT
+# Project: IReLeaSE
 # Date: 4/8/2020
 # Time: 8:02 PM
 # File: ppo_rl_jak2_minmax.py
