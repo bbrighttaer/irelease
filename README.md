@@ -4,7 +4,7 @@ This repository contains the source codes of the
 paper. The work proposes a framework for training compound generators using 
 Deep Inverse Reinforcement Learning.
 
-![IReLeaSE_framework](./proj/framework.png =500x) 
+<img style="max-width: 400px; height: auto; " src="./proj/framework.png" />
 
 ## Requirements
 ### Dependencies
