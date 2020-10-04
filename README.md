@@ -78,6 +78,7 @@ The Stack-RNN model used in our work could be pretrained with the following comm
 $ cd proj
 $ python pretrain_rnn.py --data ../data/chembl.smi
 ```
+The pretrained model we used could be downloaded from [here](https://www.dropbox.com/sh/54novmbmyi1p75x/AAAk3JiGYyJ3Z_FEdC7Dcxd4a?dl=0).
 
 ### Evaluation Functions
 #### DRD2 Activity
