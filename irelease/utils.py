@@ -16,7 +16,6 @@ from torch.utils.data import Dataset
 from tqdm import trange
 from sklearn.metrics import mean_squared_error
 
-from irelease.mol_graphs import ConvMol
 
 lg = RDLogger.logger()
 lg.setLevel(RDLogger.CRITICAL)
