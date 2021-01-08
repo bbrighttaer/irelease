@@ -1,6 +1,6 @@
 # IReLeaSE
 This repository contains the source codes of the 
-[Deep Inverse Reinforcement Learning for Structural Evolution of Small Molecules](https://arxiv.org/abs/2008.11804)
+[Deep Inverse Reinforcement Learning for Structural Evolution of Small Molecules](https://pubmed.ncbi.nlm.nih.gov/33348357/)
 paper. The work proposes a framework for training compound generators using 
 Deep Inverse Reinforcement Learning.
 
