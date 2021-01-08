@@ -189,7 +189,6 @@ We also acknowledge the post of [int8](https://github.com/int8) on
     doi = {10.1093/bib/bbaa364},
     url = {https://doi.org/10.1093/bib/bbaa364},
     note = {bbaa364},
-    eprint = {https://academic.oup.com/bib/advance-article-pdf/doi/10.1093/bib/bbaa364/35054011/bbaa364.pdf},
 }
 ```
 
