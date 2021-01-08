@@ -179,11 +179,17 @@ We also acknowledge the post of [int8](https://github.com/int8) on
 
 ## Cite
 ```bibtex
-@article{agyemang2020deep,
-  title={Deep Inverse Reinforcement Learning for Structural Evolution of Small Molecules},
-  author={Agyemang, Brighter and Wu, Wei-Ping and Addo, Daniel and Kpiebaareh, Michael Y and Nanor, Ebenezer and Haruna, Charles Roland},
-  journal={arXiv preprint arXiv:2008.11804},
-  year={2020}
+@article{10.1093/bib/bbaa364,
+    author = {Agyemang, Brighter and Wu, Wei-Ping and Addo, Daniel and Kpiebaareh, Michael Y and Nanor, Ebenezer and Roland Haruna, Charles},
+    title = "{Deep inverse reinforcement learning for structural evolution of small molecules}",
+    journal = {Briefings in Bioinformatics},
+    year = {2020},
+    month = {12},
+    issn = {1477-4054},
+    doi = {10.1093/bib/bbaa364},
+    url = {https://doi.org/10.1093/bib/bbaa364},
+    note = {bbaa364},
+    eprint = {https://academic.oup.com/bib/advance-article-pdf/doi/10.1093/bib/bbaa364/35054011/bbaa364.pdf},
 }
 ```
 
