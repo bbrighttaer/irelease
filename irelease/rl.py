@@ -519,11 +519,10 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
     @torch.enable_grad()
     def fit(self, trajectories):
         """Train the reward function / model using the GRL algorithm."""
-        """Train the reward function / model using the GRL algorithm."""
         if self.use_buffer:
+            self.replay_buffer.populate(trajectories)
             extra_trajs = self.replay_buffer.sample(self.batch_size)
             trajectories.extend(extra_trajs)
-            self.replay_buffer.populate(trajectories)
         d_traj, d_traj_probs = [], []
         for traj in trajectories:
             d_traj.append(''.join(list(traj.terminal_state.state)) + traj.terminal_state.action)
