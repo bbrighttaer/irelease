@@ -520,8 +520,11 @@ class GuidedRewardLearningIRL(DRLAlgorithm):
     def fit(self, trajectories):
         """Train the reward function / model using the GRL algorithm."""
         if self.use_buffer:
-            self.replay_buffer.populate(trajectories)
+            # first sample from the buffer
             extra_trajs = self.replay_buffer.sample(self.batch_size)
+            # add the current trajectories to the buffer
+            self.replay_buffer.populate(trajectories)
+            # add the entries sampled from the buffer to the current trajectories
             trajectories.extend(extra_trajs)
         d_traj, d_traj_probs = [], []
         for traj in trajectories:
@@ -582,7 +585,7 @@ class TrajectoriesBuffer:
 
     def sample(self, batch_size):
         if len(self.buffer) <= batch_size:
-            return self.buffer
+            return list(self.buffer)
         keys = np.random.choice(len(self.buffer), batch_size, replace=True)
         return [self.buffer[key] for key in keys]
 
